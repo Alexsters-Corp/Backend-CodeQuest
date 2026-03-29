@@ -1,9 +1,10 @@
 const jwt = require('jsonwebtoken')
+const { env } = require('../config/env')
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'dev_access_secret_change_me'
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret_change_me'
-const ACCESS_EXPIRES = process.env.JWT_ACCESS_EXPIRES || '15m'
-const REFRESH_EXPIRES = process.env.JWT_REFRESH_EXPIRES || '7d'
+const ACCESS_SECRET = env.jwt.accessSecret
+const REFRESH_SECRET = env.jwt.refreshSecret
+const ACCESS_EXPIRES = env.jwt.accessExpiresIn
+const REFRESH_EXPIRES = env.jwt.refreshExpiresIn
 
 /**
  * Genera un access token de corta duración.

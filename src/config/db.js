@@ -1,14 +1,14 @@
 const mysql = require('mysql2/promise')
-require('dotenv').config()
+const { env } = require('./env')
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'codequest',
-  port: Number(process.env.DB_PORT || 3306),
+  host: env.db.host,
+  user: env.db.user,
+  password: env.db.password,
+  database: env.db.name,
+  port: env.db.port,
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: env.db.connectionLimit,
   queueLimit: 0,
 })
 
