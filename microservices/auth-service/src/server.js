@@ -5,6 +5,8 @@ require('dotenv').config()
 const pool = require('./config/db')
 const authRoutes = require('./routes/auth.routes')
 const userRoutes = require('./routes/user.routes')
+const notFoundHandler = require('./core/http/notFoundHandler')
+const errorHandler = require('./core/http/errorHandler')
 
 const app = express()
 const PORT = Number(process.env.PORT || 4001)
@@ -27,6 +29,9 @@ app.get('/internal/health', async (_req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
+
+app.use(notFoundHandler)
+app.use(errorHandler)
 
 app.listen(PORT, () => {
   console.log(`Auth Service ejecutandose en http://localhost:${PORT}`)

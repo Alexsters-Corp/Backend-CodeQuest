@@ -1,423 +1,424 @@
 const pool = require('../config/db')
+const AppError = require('../core/errors/AppError')
+const asyncHandler = require('../core/http/asyncHandler')
+const { parsePositiveInt } = require('../core/validation/request')
+const LessonProgressService = require('../services/lessonProgress.service')
+
+const lessonProgressService = new LessonProgressService({ pool })
+const DEFAULT_LESSON_XP = 50
+const SYNTHETIC_EXERCISE_OFFSET = 900000000
+
+const DIFFICULTY_ORDER_SQL =
+  "CASE lp.difficulty_level WHEN 'principiante' THEN 1 WHEN 'intermedio' THEN 2 ELSE 3 END"
+
+async function ensureUserStatsRows(userId) {
+  await Promise.allSettled([
+    pool.query(
+      `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
+       VALUES (?, 0, 1, 0, 0, 0)`,
+      [userId]
+    ),
+    pool.query(
+      `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
+       VALUES (?, 0, 0)`,
+      [userId]
+    ),
+  ])
+}
+
+function mapPathState({ pathIndex, selectedIndex, totalLessons, completedLessons }) {
+  if (pathIndex < selectedIndex) {
+    return { estado: 'completado', porcentaje: 100 }
+  }
+
+  if (totalLessons > 0 && completedLessons >= totalLessons) {
+    return { estado: 'completado', porcentaje: 100 }
+  }
+
+  if (pathIndex === selectedIndex) {
+    const percent = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0
+    return { estado: 'en_progreso', porcentaje: percent }
+  }
+
+  return { estado: 'bloqueado', porcentaje: 0 }
+}
+
+async function resolvePathModules({ userId, languageId }) {
+  const [paths] = await pool.query(
+    `SELECT lp.id,
+            lp.name AS nombre,
+            COALESCE(lp.description, '') AS descripcion,
+            lp.difficulty_level,
+            COALESCE(pl.logo_url, 'code') AS icono,
+            ${DIFFICULTY_ORDER_SQL} AS orden
+     FROM learning_paths lp
+     JOIN programming_languages pl ON pl.id = lp.programming_language_id
+     WHERE lp.programming_language_id = ? AND lp.is_active = 1
+     ORDER BY orden, lp.id`,
+    [languageId]
+  )
+
+  if (paths.length === 0) {
+    return []
+  }
+
+  const pathIds = paths.map((path) => path.id)
+
+  const [progressRows] = await pool.query(
+    `SELECT l.learning_path_id,
+            COUNT(*) AS total_lessons,
+            COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons
+     FROM lessons l
+     LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = ?
+     WHERE l.learning_path_id IN (?) AND l.is_published = 1
+     GROUP BY l.learning_path_id`,
+    [userId, pathIds]
+  )
+
+  const progressByPath = new Map(
+    progressRows.map((row) => [
+      Number(row.learning_path_id),
+      {
+        totalLessons: Number(row.total_lessons || 0),
+        completedLessons: Number(row.completed_lessons || 0),
+      },
+    ])
+  )
+
+  const [selectedRows] = await pool.query(
+    `SELECT learning_path_id
+     FROM user_learning_paths
+     WHERE user_id = ?
+     LIMIT 1`,
+    [userId]
+  )
+
+  let selectedPathId = Number(selectedRows[0]?.learning_path_id || 0)
+  const hasSelectedPathInLanguage = paths.some((path) => Number(path.id) === selectedPathId)
+
+  if (!hasSelectedPathInLanguage) {
+    selectedPathId = Number(paths[0].id)
+    await pool.query(
+      `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
+       VALUES (?, ?, 0.00, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE learning_path_id = VALUES(learning_path_id),
+                               progress_percentage = VALUES(progress_percentage),
+                               selected_at = NOW(),
+                               last_accessed_at = NOW()`,
+      [userId, selectedPathId]
+    )
+  }
+
+  const selectedIndex = Math.max(
+    0,
+    paths.findIndex((path) => Number(path.id) === selectedPathId)
+  )
+
+  return paths.map((path, index) => {
+    const stats = progressByPath.get(Number(path.id)) || { totalLessons: 0, completedLessons: 0 }
+    const state = mapPathState({
+      pathIndex: index,
+      selectedIndex,
+      totalLessons: stats.totalLessons,
+      completedLessons: stats.completedLessons,
+    })
+
+    return {
+      id: Number(path.id),
+      nombre: path.nombre,
+      descripcion: path.descripcion,
+      numero: index + 1,
+      icono: path.icono,
+      xp_recompensa: DEFAULT_LESSON_XP,
+      estado: state.estado,
+      porcentaje: state.porcentaje,
+      totalLessons: stats.totalLessons,
+      completedLessons: stats.completedLessons,
+      difficulty: path.difficulty_level,
+    }
+  })
+}
 
 /**
  * GET /api/lessons/modules?languageId=1
  * Lista módulos de un lenguaje con su progreso para el usuario.
  */
-const getModules = async (req, res) => {
-  try {
-    const { languageId } = req.query
-    const userId = req.user.id
+const getModules = asyncHandler(async (req, res) => {
+  const languageId = parsePositiveInt(req.query.languageId, 'languageId')
+  const userId = req.user.id
 
-    if (!languageId) {
-      return res.status(400).json({ message: 'languageId es obligatorio.' })
-    }
+  await ensureUserStatsRows(userId)
+  const modules = await resolvePathModules({ userId, languageId })
 
-    const [modules] = await pool.query(
-      `SELECT m.id, m.nombre, m.descripcion, m.numero, m.icono, m.xp_recompensa,
-              COALESCE(pm.estado, 'bloqueado') AS estado,
-              COALESCE(pm.porcentaje, 0) AS porcentaje
-       FROM modulos m
-       LEFT JOIN progreso_modulo pm ON pm.modulo_id = m.id AND pm.usuario_id = ?
-       WHERE m.lenguaje_id = ? AND m.activo = 1
-       ORDER BY m.numero`,
-      [userId, languageId]
-    )
-
-    return res.status(200).json(modules)
-  } catch (error) {
-    return res.status(500).json({ message: 'Error interno.', error: error.message })
-  }
-}
+  return res.status(200).json(
+    modules.map(({ totalLessons, completedLessons, difficulty, ...publicModule }) => publicModule)
+  )
+})
 
 /**
  * GET /api/lessons/module/:moduleId
  * Lista lecciones de un módulo con su progreso.
  */
-const getLessons = async (req, res) => {
-  try {
-    const { moduleId } = req.params
-    const userId = req.user.id
+const getLessons = asyncHandler(async (req, res) => {
+  const moduleId = parsePositiveInt(req.params.moduleId, 'moduleId')
+  const userId = req.user.id
 
-    // Verificar que el módulo no está bloqueado
-    const [progreso] = await pool.query(
-      `SELECT estado FROM progreso_modulo WHERE modulo_id = ? AND usuario_id = ?`,
-      [moduleId, userId]
-    )
+  const [pathRows] = await pool.query(
+    `SELECT id, programming_language_id
+     FROM learning_paths
+     WHERE id = ? AND is_active = 1
+     LIMIT 1`,
+    [moduleId]
+  )
 
-    if (progreso.length > 0 && progreso[0].estado === 'bloqueado') {
-      return res.status(403).json({ message: 'Este módulo está bloqueado.' })
-    }
-
-    const [lessons] = await pool.query(
-      `SELECT l.id, l.titulo, l.descripcion, l.numero, l.tipo, l.xp_recompensa,
-              COALESCE(pl.estado, 'bloqueado') AS estado,
-              pl.puntuacion_mejor
-       FROM lecciones l
-       LEFT JOIN progreso_leccion pl ON pl.leccion_id = l.id AND pl.usuario_id = ?
-       WHERE l.modulo_id = ? AND l.activo = 1
-       ORDER BY l.numero`,
-      [userId, moduleId]
-    )
-
-    // Si no hay progreso de lecciones, desbloquear la primera
-    const anyUnlocked = lessons.some(l => l.estado !== 'bloqueado')
-    if (!anyUnlocked && lessons.length > 0) {
-      lessons[0].estado = 'disponible'
-      // Crear registro de progreso para la primera lección
-      await pool.query(
-        `INSERT IGNORE INTO progreso_leccion (usuario_id, leccion_id, estado, fecha_inicio)
-         VALUES (?, ?, 'disponible', NOW())`,
-        [userId, lessons[0].id]
-      )
-    }
-
-    return res.status(200).json(lessons)
-  } catch (error) {
-    return res.status(500).json({ message: 'Error interno.', error: error.message })
+  if (pathRows.length === 0) {
+    throw AppError.notFound('Modulo no encontrado.')
   }
-}
+
+  const modules = await resolvePathModules({
+    userId,
+    languageId: Number(pathRows[0].programming_language_id),
+  })
+  const moduleState = modules.find((module) => Number(module.id) === moduleId)
+
+  if (!moduleState) {
+    throw AppError.notFound('Modulo no encontrado.')
+  }
+
+  if (moduleState.estado === 'bloqueado') {
+    throw AppError.forbidden('Este módulo está bloqueado.')
+  }
+
+  const [lessons] = await pool.query(
+    `SELECT l.id,
+            l.title,
+            COALESCE(l.description, '') AS description,
+            l.order_position,
+            COALESCE(up.status, 'not_started') AS progress_status,
+            COALESCE(up.xp_earned, 0) AS xp_earned
+     FROM lessons l
+     LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = ?
+     WHERE l.learning_path_id = ? AND l.is_published = 1
+     ORDER BY l.order_position`,
+    [userId, moduleId]
+  )
+
+  let unlockNext = true
+  const responseLessons = lessons.map((lesson) => {
+    let estado = 'bloqueado'
+
+    if (lesson.progress_status === 'completed') {
+      estado = 'completada'
+    } else if (unlockNext) {
+      estado = lesson.progress_status === 'in_progress' ? 'en_progreso' : 'disponible'
+      unlockNext = false
+    }
+
+    if (lesson.progress_status === 'completed') {
+      unlockNext = true
+    }
+
+    return {
+      id: Number(lesson.id),
+      titulo: lesson.title,
+      descripcion: lesson.description,
+      numero: Number(lesson.order_position),
+      tipo: 'teoria_practica',
+      xp_recompensa: DEFAULT_LESSON_XP,
+      estado,
+      puntuacion_mejor: Number(lesson.xp_earned || 0),
+    }
+  })
+
+  return res.status(200).json(responseLessons)
+})
 
 /**
  * GET /api/lessons/:lessonId
  * Obtiene el contenido de una lección: teoría + ejercicios.
  */
-const getLessonContent = async (req, res) => {
-  try {
-    const { lessonId } = req.params
-    const userId = req.user.id
+const getLessonContent = asyncHandler(async (req, res) => {
+  const lessonId = parsePositiveInt(req.params.lessonId, 'lessonId')
+  const userId = req.user.id
 
-    // Info de la lección
-    const [lessons] = await pool.query(
-      `SELECT l.*, m.nombre AS modulo_nombre, m.lenguaje_id
-       FROM lecciones l
-       JOIN modulos m ON m.id = l.modulo_id
-       WHERE l.id = ?`,
-      [lessonId]
-    )
+  const [lessons] = await pool.query(
+    `SELECT l.id,
+            l.learning_path_id,
+            l.title,
+            COALESCE(l.description, '') AS description,
+            l.content,
+            l.order_position,
+            lp.name AS modulo_nombre,
+            lp.programming_language_id AS lenguaje_id
+     FROM lessons l
+     JOIN learning_paths lp ON lp.id = l.learning_path_id
+     WHERE l.id = ? AND l.is_published = 1`,
+    [lessonId]
+  )
 
-    if (lessons.length === 0) {
-      return res.status(404).json({ message: 'Lección no encontrada.' })
-    }
-
-    const lesson = lessons[0]
-
-    // Ejercicios de la lección
-    const [exercises] = await pool.query(
-      `SELECT id, tipo, enunciado, codigo_base, opciones, pista, xp_recompensa, numero
-       FROM ejercicios
-       WHERE leccion_id = ? AND activo = 1
-       ORDER BY numero`,
-      [lessonId]
-    )
-
-    // Parsear opciones JSON
-    for (const ex of exercises) {
-      if (typeof ex.opciones === 'string') {
-        try {
-          ex.opciones = JSON.parse(ex.opciones)
-        } catch (e) {
-          ex.opciones = null
-        }
-      }
-    }
-
-    // Intentos previos del usuario en esta lección
-    const exerciseIds = exercises.map(e => e.id)
-    let attempts = []
-    if (exerciseIds.length > 0) {
-      const [rows] = await pool.query(
-        `SELECT ejercicio_id, MAX(es_correcto) AS resuelto
-         FROM intentos_ejercicio
-         WHERE usuario_id = ? AND ejercicio_id IN (?)
-         GROUP BY ejercicio_id`,
-        [userId, exerciseIds]
-      )
-      attempts = rows
-    }
-
-    const attemptMap = {}
-    for (const a of attempts) {
-      attemptMap[a.ejercicio_id] = !!a.resuelto
-    }
-
-    // Añadir estado a cada ejercicio
-    for (const ex of exercises) {
-      ex.resuelto = attemptMap[ex.id] || false
-    }
-
-    return res.status(200).json({
-      lesson: {
-        id: lesson.id,
-        titulo: lesson.titulo,
-        descripcion: lesson.descripcion,
-        contenido_teoria: lesson.contenido_teoria,
-        tipo: lesson.tipo,
-        xp_recompensa: lesson.xp_recompensa,
-        modulo_nombre: lesson.modulo_nombre,
-        lenguaje_id: lesson.lenguaje_id,
-      },
-      exercises,
-    })
-  } catch (error) {
-    return res.status(500).json({ message: 'Error interno.', error: error.message })
+  if (lessons.length === 0) {
+    throw AppError.notFound('Lección no encontrada.')
   }
-}
+
+  const lesson = lessons[0]
+
+  const modules = await resolvePathModules({
+    userId,
+    languageId: Number(lesson.lenguaje_id),
+  })
+  const moduleState = modules.find((module) => Number(module.id) === Number(lesson.learning_path_id))
+
+  if (!moduleState || moduleState.estado === 'bloqueado') {
+    throw AppError.forbidden('Este módulo está bloqueado.')
+  }
+
+  const [requiredRows] = await pool.query(
+    `SELECT COUNT(*) AS total_required
+     FROM lessons
+     WHERE learning_path_id = ?
+       AND is_published = 1
+       AND order_position < ?`,
+    [lesson.learning_path_id, lesson.order_position]
+  )
+
+  const [completedRows] = await pool.query(
+    `SELECT COUNT(*) AS total_completed
+     FROM user_progress up
+     JOIN lessons l ON l.id = up.lesson_id
+     WHERE up.user_id = ?
+       AND l.learning_path_id = ?
+       AND l.is_published = 1
+       AND l.order_position < ?
+       AND up.status = 'completed'`,
+    [userId, lesson.learning_path_id, lesson.order_position]
+  )
+
+  if (Number(completedRows[0]?.total_completed || 0) < Number(requiredRows[0]?.total_required || 0)) {
+    throw AppError.forbidden('Debes completar las lecciones anteriores primero.')
+  }
+
+  await pool.query(
+    `INSERT INTO user_progress (user_id, lesson_id, status, started_at, last_accessed_at, submission_count)
+     VALUES (?, ?, 'in_progress', NOW(), NOW(), 0)
+     ON DUPLICATE KEY UPDATE
+       started_at = COALESCE(started_at, NOW()),
+       status = IF(status = 'completed', 'completed', 'in_progress'),
+       last_accessed_at = NOW()`,
+    [userId, lessonId]
+  )
+
+  const [testCases] = await pool.query(
+    `SELECT tc.id,
+            tc.input_data,
+            tc.expected_output,
+            tc.is_hidden,
+            tc.points,
+            tc.order_position,
+            ls.explanation
+     FROM lesson_test_cases tc
+     LEFT JOIN lesson_solutions ls ON ls.lesson_id = tc.lesson_id
+     WHERE tc.lesson_id = ?
+     ORDER BY tc.order_position, tc.id`,
+    [lessonId]
+  )
+
+  const [acceptedRows] = await pool.query(
+    `SELECT DISTINCT judge0_submission_id
+     FROM user_submissions
+     WHERE user_id = ?
+       AND lesson_id = ?
+       AND status = 'accepted'
+       AND judge0_submission_id LIKE 'tc:%'`,
+    [userId, lessonId]
+  )
+
+  const acceptedCaseIds = new Set(
+    acceptedRows
+      .map((row) => String(row.judge0_submission_id || '').replace('tc:', ''))
+      .filter((value) => value.length > 0)
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  )
+
+  const exercises = testCases.map((testCase) => {
+    const inputText = String(testCase.input_data || '').trim()
+    const statement = testCase.is_hidden
+      ? `Caso de prueba ${testCase.order_position}. Escribe la salida esperada para este caso oculto.`
+      : `Caso de prueba ${testCase.order_position}. Input: ${inputText || '(vacio)'}. Escribe la salida exacta.`
+
+    return {
+      id: Number(testCase.id),
+      tipo: 'completar_codigo',
+      enunciado: statement,
+      codigo_base: '',
+      opciones: null,
+      pista:
+        testCase.explanation ||
+        'Revisa mayusculas, espacios y saltos de linea antes de enviar la respuesta.',
+      xp_recompensa: Number(testCase.points || 10),
+      numero: Number(testCase.order_position || 1),
+      resuelto: acceptedCaseIds.has(Number(testCase.id)),
+    }
+  })
+
+  if (exercises.length === 0) {
+    const [progressRows] = await pool.query(
+      `SELECT status
+       FROM user_progress
+       WHERE user_id = ? AND lesson_id = ?
+       LIMIT 1`,
+      [userId, lessonId]
+    )
+
+    exercises.push({
+      id: SYNTHETIC_EXERCISE_OFFSET + Number(lesson.id),
+      tipo: 'completar_codigo',
+      enunciado:
+        'Escribe una breve conclusion de lo aprendido para marcar esta leccion como completada.',
+      codigo_base: '',
+      opciones: null,
+      pista: 'Puedes escribir una frase corta, por ejemplo: "Leccion completada".',
+      xp_recompensa: 10,
+      numero: 1,
+      resuelto: progressRows[0]?.status === 'completed',
+    })
+  }
+
+  return res.status(200).json({
+    lesson: {
+      id: lesson.id,
+      titulo: lesson.title,
+      descripcion: lesson.description,
+      contenido_teoria: lesson.content,
+      tipo: 'teoria_practica',
+      xp_recompensa: DEFAULT_LESSON_XP,
+      modulo_nombre: lesson.modulo_nombre,
+      lenguaje_id: lesson.lenguaje_id,
+    },
+    exercises,
+  })
+})
 
 /**
  * POST /api/lessons/exercise/submit
  * Body: { exerciseId, answer }
  * Evalúa la respuesta del usuario.
  */
-const submitExercise = async (req, res) => {
-  try {
-    const { exerciseId, answer } = req.body
-    const userId = req.user.id
+const submitExercise = asyncHandler(async (req, res) => {
+  const exerciseId = parsePositiveInt(req.body.exerciseId, 'exerciseId')
+  const answer = req.body.answer
 
-    if (!exerciseId || answer === undefined) {
-      return res.status(400).json({ message: 'exerciseId y answer son obligatorios.' })
-    }
-
-    // Obtener ejercicio con respuesta correcta
-    const [exercises] = await pool.query(
-      `SELECT e.*, l.modulo_id, l.xp_recompensa AS leccion_xp
-       FROM ejercicios e
-       JOIN lecciones l ON l.id = e.leccion_id
-       WHERE e.id = ?`,
-      [exerciseId]
-    )
-
-    if (exercises.length === 0) {
-      return res.status(404).json({ message: 'Ejercicio no encontrado.' })
-    }
-
-    const exercise = exercises[0]
-
-    // Evaluar respuesta
-    let isCorrect = false
-    const correctAnswer = String(exercise.respuesta_correcta).trim()
-    const userAnswer = String(answer).trim()
-
-    switch (exercise.tipo) {
-      case 'opcion_multiple':
-      case 'verdadero_falso':
-        isCorrect = userAnswer.toLowerCase() === correctAnswer.toLowerCase()
-        break
-      case 'completar_codigo':
-        isCorrect = userAnswer === correctAnswer
-        break
-      case 'ordenar_codigo':
-        isCorrect = userAnswer === correctAnswer
-        break
-      default:
-        isCorrect = userAnswer === correctAnswer
-    }
-
-    // Registrar intento
-    const xpGained = isCorrect ? exercise.xp_recompensa : 0
-    await pool.query(
-      `INSERT INTO intentos_ejercicio (usuario_id, ejercicio_id, respuesta, es_correcto, xp_ganado)
-       VALUES (?, ?, ?, ?, ?)`,
-      [userId, exerciseId, userAnswer, isCorrect ? 1 : 0, xpGained]
-    )
-
-    // Si es correcto, sumar XP
-    if (isCorrect) {
-      // Verificar que no haya ganado XP previamente por este ejercicio
-      const [prevCorrect] = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM intentos_ejercicio
-         WHERE usuario_id = ? AND ejercicio_id = ? AND es_correcto = 1`,
-        [userId, exerciseId]
-      )
-
-      if (prevCorrect[0].cnt <= 1) {
-        // Primera vez correcto - dar XP
-        await pool.query(
-          `INSERT INTO xp_transacciones (usuario_id, cantidad, tipo, referencia_tipo, referencia_id, descripcion)
-           VALUES (?, ?, 'ejercicio', 'ejercicio', ?, ?)`,
-          [userId, xpGained, exerciseId, `Ejercicio completado`]
-        )
-
-        // Actualizar XP total del usuario
-        await pool.query(
-          `UPDATE usuarios SET xp_total = COALESCE(xp_total, 0) + ? WHERE id = ?`,
-          [xpGained, userId]
-        )
-
-        // Actualizar racha
-        await updateStreak(userId)
-      }
-
-      // Verificar si completó la lección
-      await checkLessonCompletion(userId, exercise.leccion_id)
-    }
-
-    return res.status(200).json({
-      isCorrect,
-      correctAnswer: isCorrect ? null : correctAnswer,
-      xpGained,
-      hint: !isCorrect ? exercise.pista : null,
-    })
-  } catch (error) {
-    return res.status(500).json({ message: 'Error interno.', error: error.message })
-  }
-}
-
-/**
- * Verificar si el usuario completó todos los ejercicios de una lección.
- */
-async function checkLessonCompletion(userId, lessonId) {
-  const [totalEx] = await pool.query(
-    `SELECT COUNT(*) AS total FROM ejercicios WHERE leccion_id = ? AND activo = 1`,
-    [lessonId]
-  )
-
-  const [completedEx] = await pool.query(
-    `SELECT COUNT(DISTINCT e.id) AS completados
-     FROM ejercicios e
-     JOIN intentos_ejercicio ie ON ie.ejercicio_id = e.id AND ie.usuario_id = ? AND ie.es_correcto = 1
-     WHERE e.leccion_id = ? AND e.activo = 1`,
-    [userId, lessonId]
-  )
-
-  if (completedEx[0].completados >= totalEx[0].total && totalEx[0].total > 0) {
-    // Marcar lección completada
-    await pool.query(
-      `UPDATE progreso_leccion SET estado = 'completada', fecha_completado = NOW()
-       WHERE usuario_id = ? AND leccion_id = ?`,
-      [userId, lessonId]
-    )
-
-    // Desbloquear siguiente lección
-    const [currentLesson] = await pool.query(
-      `SELECT modulo_id, numero FROM lecciones WHERE id = ?`, [lessonId]
-    )
-
-    if (currentLesson.length > 0) {
-      const [nextLesson] = await pool.query(
-        `SELECT id FROM lecciones WHERE modulo_id = ? AND numero = ? AND activo = 1`,
-        [currentLesson[0].modulo_id, currentLesson[0].numero + 1]
-      )
-
-      if (nextLesson.length > 0) {
-        await pool.query(
-          `INSERT INTO progreso_leccion (usuario_id, leccion_id, estado, fecha_inicio)
-           VALUES (?, ?, 'disponible', NOW())
-           ON DUPLICATE KEY UPDATE estado = IF(estado = 'bloqueado', 'disponible', estado)`,
-          [userId, nextLesson[0].id]
-        )
-      } else {
-        // No hay más lecciones — verificar finalización del módulo
-        await checkModuleCompletion(userId, currentLesson[0].modulo_id)
-      }
-    }
-  }
-}
-
-/**
- * Verificar si el usuario completó todos las lecciones de un módulo.
- */
-async function checkModuleCompletion(userId, moduleId) {
-  const [totalLessons] = await pool.query(
-    `SELECT COUNT(*) AS total FROM lecciones WHERE modulo_id = ? AND activo = 1`,
-    [moduleId]
-  )
-
-  const [completedLessons] = await pool.query(
-    `SELECT COUNT(*) AS completadas FROM progreso_leccion pl
-     JOIN lecciones l ON l.id = pl.leccion_id
-     WHERE l.modulo_id = ? AND pl.usuario_id = ? AND pl.estado = 'completada'`,
-    [moduleId, userId]
-  )
-
-  if (completedLessons[0].completadas >= totalLessons[0].total && totalLessons[0].total > 0) {
-    // Marcar módulo completado
-    await pool.query(
-      `UPDATE progreso_modulo SET estado = 'completado', porcentaje = 100, fecha_completado = NOW()
-       WHERE usuario_id = ? AND modulo_id = ?`,
-      [userId, moduleId]
-    )
-
-    // XP bonus por módulo
-    const [mod] = await pool.query(`SELECT xp_recompensa, lenguaje_id, numero FROM modulos WHERE id = ?`, [moduleId])
-    if (mod.length > 0 && mod[0].xp_recompensa) {
-      await pool.query(
-        `INSERT INTO xp_transacciones (usuario_id, cantidad, tipo, referencia_tipo, referencia_id, descripcion)
-         VALUES (?, ?, 'modulo', 'modulo', ?, 'Modulo completado')`,
-        [userId, mod[0].xp_recompensa, moduleId]
-      )
-      await pool.query(
-        `UPDATE usuarios SET xp_total = COALESCE(xp_total, 0) + ? WHERE id = ?`,
-        [mod[0].xp_recompensa, userId]
-      )
-    }
-
-    // Desbloquear siguiente módulo
-    if (mod.length > 0) {
-      const [nextModule] = await pool.query(
-        `SELECT id FROM modulos WHERE lenguaje_id = ? AND numero = ? AND activo = 1`,
-        [mod[0].lenguaje_id, mod[0].numero + 1]
-      )
-      if (nextModule.length > 0) {
-        await pool.query(
-          `INSERT INTO progreso_modulo (usuario_id, modulo_id, estado, porcentaje, fecha_inicio)
-           VALUES (?, ?, 'en_progreso', 0, NOW())
-           ON DUPLICATE KEY UPDATE estado = IF(estado = 'bloqueado', 'en_progreso', estado)`,
-          [userId, nextModule[0].id]
-        )
-      }
-    }
-  } else {
-    // Actualizar porcentaje
-    const pct = Math.round((completedLessons[0].completadas / totalLessons[0].total) * 100)
-    await pool.query(
-      `UPDATE progreso_modulo SET porcentaje = ? WHERE usuario_id = ? AND modulo_id = ?`,
-      [pct, userId, moduleId]
-    )
-  }
-}
-
-/**
- * Actualizar racha del usuario.
- */
-async function updateStreak(userId) {
-  const today = new Date().toISOString().split('T')[0]
-
-  const [rachas] = await pool.query(
-    `SELECT * FROM rachas WHERE usuario_id = ? LIMIT 1`, [userId]
-  )
-
-  if (rachas.length === 0) {
-    await pool.query(
-      `INSERT INTO rachas (usuario_id, racha_actual, racha_maxima, ultimo_dia_activo)
-       VALUES (?, 1, 1, ?)`,
-      [userId, today]
-    )
-    return
+  if (answer === undefined) {
+    throw AppError.badRequest('answer es obligatorio.')
   }
 
-  const racha = rachas[0]
-  const lastActive = new Date(racha.ultimo_dia_activo).toISOString().split('T')[0]
+  const result = await lessonProgressService.submitExercise({
+    userId: req.user.id,
+    exerciseId,
+    answer,
+  })
 
-  if (lastActive === today) return // Ya contada hoy
-
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayStr = yesterday.toISOString().split('T')[0]
-
-  let newStreak
-  if (lastActive === yesterdayStr) {
-    newStreak = racha.racha_actual + 1
-  } else {
-    newStreak = 1 // Racha rota
-  }
-
-  const maxStreak = Math.max(newStreak, racha.racha_maxima)
-
-  await pool.query(
-    `UPDATE rachas SET racha_actual = ?, racha_maxima = ?, ultimo_dia_activo = ? WHERE usuario_id = ?`,
-    [newStreak, maxStreak, today, userId]
-  )
-}
+  return res.status(200).json(result)
+})
 
 module.exports = { getModules, getLessons, getLessonContent, submitExercise }
