@@ -2,22 +2,22 @@ const pool = require('../config/db')
 const AppError = require('../core/errors/AppError')
 const asyncHandler = require('../core/http/asyncHandler')
 const { parseString } = require('../core/validation/request')
+const UserRepository = require('../repositories/user.repository')
+
+const userRepository = new UserRepository({ pool })
 
 /**
  * GET /api/users/me
  * Devuelve los datos del usuario autenticado.
  */
 const getMe = asyncHandler(async (req, res) => {
-  const [rows] = await pool.query(
-    'SELECT id, nombre, email, estado, fecha_registro FROM usuarios WHERE id = ? LIMIT 1',
-    [req.user.id]
-  )
+  const user = await userRepository.findMeById(req.user.id)
 
-  if (rows.length === 0) {
+  if (!user) {
     throw AppError.notFound('Usuario no encontrado.')
   }
 
-  return res.status(200).json({ user: rows[0] })
+  return res.status(200).json({ user })
 })
 
 /**
@@ -27,7 +27,7 @@ const getMe = asyncHandler(async (req, res) => {
 const updateMe = asyncHandler(async (req, res) => {
   const nombre = parseString(req.body.nombre, 'nombre', { minLength: 2 })
 
-  await pool.query('UPDATE usuarios SET nombre = ? WHERE id = ?', [nombre, req.user.id])
+  await userRepository.updateName(req.user.id, nombre)
 
   return res.status(200).json({ message: 'Perfil actualizado correctamente.' })
 })

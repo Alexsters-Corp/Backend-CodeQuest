@@ -7,6 +7,8 @@ const languageRoutes = require('./routes/language.routes')
 const diagnosticRoutes = require('./routes/diagnostic.routes')
 const lessonRoutes = require('./routes/lesson.routes')
 const progressRoutes = require('./routes/progress.routes')
+const notFoundHandler = require('./core/http/notFoundHandler')
+const errorHandler = require('./core/http/errorHandler')
 
 const app = express()
 const PORT = Number(process.env.PORT || 4002)
@@ -31,6 +33,9 @@ app.use('/api/languages', languageRoutes)
 app.use('/api/diagnostic', diagnosticRoutes)
 app.use('/api/lessons', lessonRoutes)
 app.use('/api/progress', progressRoutes)
+
+app.use(notFoundHandler)
+app.use(errorHandler)
 
 app.listen(PORT, () => {
   console.log(`Learning Service ejecutandose en http://localhost:${PORT}`)

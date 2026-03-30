@@ -1,45 +1,38 @@
 const pool = require('../config/db')
+const AppError = require('../core/errors/AppError')
+const asyncHandler = require('../core/http/asyncHandler')
+const { parseString, requireFields } = require('../core/validation/request')
+const UserRepository = require('../repositories/user.repository')
+
+const userRepository = new UserRepository({ pool })
 
 /**
  * GET /api/users/me
  * Devuelve los datos del usuario autenticado.
  */
-const getMe = async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      'SELECT id, nombre, email, estado, fecha_registro FROM usuarios WHERE id = ? LIMIT 1',
-      [req.user.id]
-    )
+const getMe = asyncHandler(async (req, res) => {
+  const userId = req.user.id
+  const user = await userRepository.findMeById(userId)
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Usuario no encontrado.' })
-    }
-
-    return res.status(200).json({ user: rows[0] })
-  } catch (error) {
-    return res.status(500).json({ message: 'Error interno del servidor.', error: error.message })
+  if (!user) {
+    throw AppError.notFound('Usuario no encontrado.')
   }
-}
+
+  return res.status(200).json({ user })
+})
 
 /**
  * PUT /api/users/me
  * Actualiza nombre del usuario autenticado.
  */
-const updateMe = async (req, res) => {
-  try {
-    const { nombre } = req.body
+const updateMe = asyncHandler(async (req, res) => {
+  requireFields(req.body, ['nombre'])
+  const nombre = parseString(req.body.nombre, 'nombre', { minLength: 2 })
 
-    if (!nombre) {
-      return res.status(400).json({ message: 'El nombre es obligatorio.' })
-    }
+  await userRepository.updateName(req.user.id, nombre)
 
-    await pool.query('UPDATE usuarios SET nombre = ? WHERE id = ?', [nombre, req.user.id])
-
-    return res.status(200).json({ message: 'Perfil actualizado correctamente.' })
-  } catch (error) {
-    return res.status(500).json({ message: 'Error interno del servidor.', error: error.message })
-  }
-}
+  return res.status(200).json({ message: 'Perfil actualizado correctamente.' })
+})
 
 module.exports = {
   getMe,

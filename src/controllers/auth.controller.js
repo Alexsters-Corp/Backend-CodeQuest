@@ -4,6 +4,24 @@ const AppError = require('../core/errors/AppError')
 const asyncHandler = require('../core/http/asyncHandler')
 const { parseString, requireFields } = require('../core/validation/request')
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt')
+const UserRepository = require('../repositories/user.repository')
+
+const userRepository = new UserRepository({ pool })
+
+async function ensureUserMetricsRows(userId) {
+  await Promise.allSettled([
+    pool.query(
+      `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
+       VALUES (?, 0, 1, 0, 0, 0)`,
+      [userId]
+    ),
+    pool.query(
+      `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
+       VALUES (?, 0, 0)`,
+      [userId]
+    ),
+  ])
+}
 
 const register = asyncHandler(async (req, res) => {
   requireFields(req.body, ['nombre', 'email', 'password'])
@@ -12,22 +30,31 @@ const register = asyncHandler(async (req, res) => {
   const email = parseString(req.body.email, 'email').toLowerCase()
   const password = parseString(req.body.password, 'password', { trim: false, minLength: 6 })
 
-  const [existingUsers] = await pool.query(
-    'SELECT id FROM usuarios WHERE email = ? LIMIT 1',
-    [email]
-  )
+  const existingUser = await userRepository.findExistingByEmail(email)
 
-  if (existingUsers.length > 0) {
+  if (existingUser) {
     throw AppError.conflict('El email ya está registrado.')
   }
 
   const hashedPassword = await bcrypt.hash(password, 10)
-  const [result] = await pool.query(
-    'INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)',
-    [nombre, email, hashedPassword]
-  )
 
-  const userId = result.insertId
+  let createdUser
+  try {
+    createdUser = await userRepository.createUser({
+      nombre,
+      email,
+      passwordHash: hashedPassword,
+    })
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw AppError.conflict('El email ya está registrado.')
+    }
+    throw error
+  }
+
+  const userId = createdUser.id
+  await ensureUserMetricsRows(userId)
+
   const accessToken = signAccessToken({ id: userId, email })
   const refreshToken = signRefreshToken({ id: userId })
 
@@ -35,7 +62,7 @@ const register = asyncHandler(async (req, res) => {
     message: 'Usuario registrado exitosamente.',
     accessToken,
     refreshToken,
-    user: { id: userId, nombre, email },
+    user: { id: userId, nombre: createdUser.nombre, email: createdUser.email },
   })
 })
 
@@ -45,18 +72,14 @@ const login = asyncHandler(async (req, res) => {
   const email = parseString(req.body.email, 'email').toLowerCase()
   const password = parseString(req.body.password, 'password', { trim: false, minLength: 1 })
 
-  const [users] = await pool.query(
-    'SELECT id, nombre, email, password FROM usuarios WHERE email = ? LIMIT 1',
-    [email]
-  )
+  const user = await userRepository.findAuthUserByEmail(email)
 
-  if (users.length === 0) {
+  if (!user) {
     throw AppError.unauthorized('Credenciales incorrectas.')
   }
 
-  const user = users[0]
   const passwordStr = String(password).trim()
-  const hashStr = String(user.password).trim()
+  const hashStr = String(user.passwordHash).trim()
 
   if (hashStr.length !== 60) {
     console.error(`[Login] Hash inválido para ${email}: longitud ${hashStr.length}, esperado 60`)
@@ -69,7 +92,8 @@ const login = asyncHandler(async (req, res) => {
     throw AppError.unauthorized('Credenciales incorrectas.')
   }
 
-  await pool.query('UPDATE usuarios SET ultimo_login = NOW() WHERE id = ?', [user.id])
+  await userRepository.touchLastLoginIfSupported(user.id)
+  await ensureUserMetricsRows(user.id)
 
   const accessToken = signAccessToken({ id: user.id, email: user.email })
   const refreshToken = signRefreshToken({ id: user.id })
@@ -101,16 +125,12 @@ const refresh = asyncHandler(async (req, res) => {
     throw AppError.unauthorized('Refresh token inválido o expirado.')
   }
 
-  const [users] = await pool.query(
-    'SELECT id, email FROM usuarios WHERE id = ? LIMIT 1',
-    [decoded.id]
-  )
+  const user = await userRepository.findBasicById(decoded.id)
 
-  if (users.length === 0) {
+  if (!user) {
     throw AppError.unauthorized('Usuario no encontrado.')
   }
 
-  const user = users[0]
   const newAccessToken = signAccessToken({ id: user.id, email: user.email })
 
   return res.status(200).json({ accessToken: newAccessToken })
