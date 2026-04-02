@@ -3,10 +3,40 @@ const pool = require('../config/db')
 const AppError = require('../core/errors/AppError')
 const asyncHandler = require('../core/http/asyncHandler')
 const { parseString, requireFields } = require('../core/validation/request')
-const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt')
+const {
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+} = require('../utils/jwt')
 const UserRepository = require('../repositories/user.repository')
+const TokenBlacklistRepository = require('../repositories/tokenBlacklist.repository')
 
 const userRepository = new UserRepository({ pool })
+const tokenBlacklistRepository = new TokenBlacklistRepository({ pool })
+
+function extractBearerToken(req) {
+  const header = req.headers.authorization
+
+  if (!header || !header.startsWith('Bearer ')) {
+    throw AppError.unauthorized('Token de autenticación requerido.')
+  }
+
+  const token = header.split(' ')[1]
+  if (!token) {
+    throw AppError.unauthorized('Token de autenticación requerido.')
+  }
+
+  return token
+}
+
+function resolveAccessTokenExpiration(decoded) {
+  if (decoded && Number.isInteger(decoded.exp)) {
+    return new Date(decoded.exp * 1000)
+  }
+
+  return new Date(Date.now() + 15 * 60 * 1000)
+}
 
 async function ensureUserMetricsRows(userId) {
   await Promise.allSettled([
@@ -136,8 +166,36 @@ const refresh = asyncHandler(async (req, res) => {
   return res.status(200).json({ accessToken: newAccessToken })
 })
 
+/**
+ * POST /api/auth/logout
+ * Invalida el access token actual enviándolo a blacklist.
+ */
+const logout = asyncHandler(async (req, res) => {
+  const token = extractBearerToken(req)
+
+  let decoded
+  try {
+    decoded = verifyAccessToken(token)
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(200).json({ message: 'Sesión cerrada correctamente.' })
+    }
+
+    throw AppError.unauthorized('Token inválido.')
+  }
+
+  await tokenBlacklistRepository.revokeToken({
+    token,
+    userId: decoded.id,
+    expiresAt: resolveAccessTokenExpiration(decoded),
+  })
+
+  return res.status(200).json({ message: 'Sesión cerrada correctamente.' })
+})
+
 module.exports = {
   register,
   login,
   refresh,
+  logout,
 }
