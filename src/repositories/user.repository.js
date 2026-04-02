@@ -118,6 +118,25 @@ class UserRepository {
     )
   }
 
+  /**
+   * Actualiza la contraseña de un usuario por su ID.
+   * Acepta una conexión de transacción opcional para operar dentro de una transacción existente.
+   * @param {number} userId
+   * @param {string} passwordHash - Nuevo hash bcrypt
+   * @param {object} [conn] - Conexión de transacción opcional (de withTransaction)
+   */
+  async updatePasswordById(userId, passwordHash, conn) {
+    const schema = await this.#resolveSchema()
+    const db = conn || this.pool
+
+    await db.query(
+      `UPDATE ${schema.tableName}
+       SET ${schema.passwordColumn} = ?
+       WHERE ${schema.idColumn} = ?`,
+      [passwordHash, userId]
+    )
+  }
+
   #buildStatusProjection(schema) {
     if (schema.statusColumn === 'estado') {
       return 'estado'

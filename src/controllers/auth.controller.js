@@ -1,12 +1,17 @@
+const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const pool = require('../config/db')
 const AppError = require('../core/errors/AppError')
 const asyncHandler = require('../core/http/asyncHandler')
 const { parseString, requireFields } = require('../core/validation/request')
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt')
+const { sendPasswordResetEmail } = require('../utils/email')
 const UserRepository = require('../repositories/user.repository')
+const PasswordResetRepository = require('../repositories/passwordReset.repository')
+const withTransaction = require('../core/db/withTransaction')
 
 const userRepository = new UserRepository({ pool })
+const passwordResetRepository = new PasswordResetRepository({ pool })
 
 async function ensureUserMetricsRows(userId) {
   await Promise.allSettled([
@@ -136,8 +141,76 @@ const refresh = asyncHandler(async (req, res) => {
   return res.status(200).json({ accessToken: newAccessToken })
 })
 
+/**
+ * POST /api/auth/forgot-password
+ * Genera un token temporal (1 hora) y envía el email de recuperación.
+ * Siempre responde con el mismo mensaje para no revelar si el email existe.
+ */
+const forgotPassword = asyncHandler(async (req, res) => {
+  requireFields(req.body, ['email'])
+  const email = parseString(req.body.email, 'email').toLowerCase()
+
+  const GENERIC_RESPONSE = {
+    message: 'Si el email existe en nuestra plataforma, recibirás un enlace de recuperación en breve.',
+  }
+
+  const user = await userRepository.findAuthUserByEmail(email)
+
+  if (!user) {
+    return res.status(200).json(GENERIC_RESPONSE)
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex')
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
+
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hora
+
+  await passwordResetRepository.saveToken(user.id, tokenHash, expiresAt)
+
+  try {
+    await sendPasswordResetEmail(user.email, rawToken)
+  } catch (emailError) {
+    console.error('[ForgotPassword] Error enviando email:', emailError)
+  }
+
+  return res.status(200).json(GENERIC_RESPONSE)
+})
+
+/**
+ * POST /api/auth/reset-password
+ * Valida el token de recuperación y actualiza la contraseña del usuario.
+ */
+const resetPassword = asyncHandler(async (req, res) => {
+  requireFields(req.body, ['token', 'password'])
+
+  const rawToken = parseString(req.body.token, 'token', { trim: false, minLength: 1 })
+  const newPassword = parseString(req.body.password, 'password', { trim: false, minLength: 6 })
+
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
+
+  const resetRecord = await passwordResetRepository.findValidToken(tokenHash)
+
+  if (!resetRecord) {
+    throw AppError.badRequest(
+      'El token de recuperación es inválido o ha expirado.',
+      'INVALID_RESET_TOKEN'
+    )
+  }
+
+  const newPasswordHash = await bcrypt.hash(newPassword, 10)
+
+  await withTransaction(pool, async (conn) => {
+    await userRepository.updatePasswordById(resetRecord.user_id, newPasswordHash, conn)
+    await passwordResetRepository.markTokenAsUsed(tokenHash, conn)
+  })
+
+  return res.status(200).json({ message: 'Contraseña actualizada exitosamente.' })
+})
+
 module.exports = {
   register,
   login,
   refresh,
+  forgotPassword,
+  resetPassword,
 }
