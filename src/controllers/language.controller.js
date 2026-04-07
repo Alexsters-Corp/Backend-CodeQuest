@@ -207,6 +207,7 @@ const selectLanguage = asyncHandler(async (req, res) => {
        ON DUPLICATE KEY UPDATE learning_path_id = VALUES(learning_path_id),
                                selected_at = NOW(),
                                last_accessed_at = NOW()`,
+      [userId, paths[0].id]
       [userId, selectedLearningPathId]
     )
 

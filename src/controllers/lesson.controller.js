@@ -6,7 +6,6 @@ const LessonProgressService = require('../services/lessonProgress.service')
 
 const lessonProgressService = new LessonProgressService({ pool })
 const DEFAULT_LESSON_XP = 50
-const SYNTHETIC_EXERCISE_OFFSET = 900000000
 
 const DIFFICULTY_ORDER_SQL =
   "CASE lp.difficulty_level WHEN 'principiante' THEN 1 WHEN 'intermedio' THEN 2 ELSE 3 END"
@@ -250,172 +249,6 @@ const getLessons = asyncHandler(async (req, res) => {
 })
 
 /**
- * GET /api/lessons/:lessonId
- * Obtiene el contenido de una lección: teoría + ejercicios.
- */
-const getLessonContent = asyncHandler(async (req, res) => {
-  const lessonId = parsePositiveInt(req.params.lessonId, 'lessonId')
-  const userId = req.user.id
-
-  const [lessons] = await pool.query(
-    `SELECT l.id,
-            l.learning_path_id,
-            l.title,
-            COALESCE(l.description, '') AS description,
-            l.content,
-            l.order_position,
-            lp.name AS modulo_nombre,
-            lp.programming_language_id AS lenguaje_id
-     FROM lessons l
-     JOIN learning_paths lp ON lp.id = l.learning_path_id
-     WHERE l.id = ? AND l.is_published = 1`,
-    [lessonId]
-  )
-
-  if (lessons.length === 0) {
-    throw AppError.notFound('Lección no encontrada.')
-  }
-
-  const lesson = lessons[0]
-
-  const modules = await resolvePathModules({
-    userId,
-    languageId: Number(lesson.lenguaje_id),
-  })
-  const moduleState = modules.find((module) => Number(module.id) === Number(lesson.learning_path_id))
-
-  if (!moduleState || moduleState.estado === 'bloqueado') {
-    throw AppError.forbidden('Este módulo está bloqueado.')
-  }
-
-  const [requiredRows] = await pool.query(
-    `SELECT COUNT(*) AS total_required
-     FROM lessons
-     WHERE learning_path_id = ?
-       AND is_published = 1
-       AND order_position < ?`,
-    [lesson.learning_path_id, lesson.order_position]
-  )
-
-  const [completedRows] = await pool.query(
-    `SELECT COUNT(*) AS total_completed
-     FROM user_progress up
-     JOIN lessons l ON l.id = up.lesson_id
-     WHERE up.user_id = ?
-       AND l.learning_path_id = ?
-       AND l.is_published = 1
-       AND l.order_position < ?
-       AND up.status = 'completed'`,
-    [userId, lesson.learning_path_id, lesson.order_position]
-  )
-
-  if (Number(completedRows[0]?.total_completed || 0) < Number(requiredRows[0]?.total_required || 0)) {
-    throw AppError.forbidden('Debes completar las lecciones anteriores primero.')
-  }
-
-  await pool.query(
-    `INSERT INTO user_progress (user_id, lesson_id, status, started_at, last_accessed_at, submission_count)
-     VALUES (?, ?, 'in_progress', NOW(), NOW(), 0)
-     ON DUPLICATE KEY UPDATE
-       started_at = COALESCE(started_at, NOW()),
-       status = IF(status = 'completed', 'completed', 'in_progress'),
-       last_accessed_at = NOW()`,
-    [userId, lessonId]
-  )
-
-  const [testCases] = await pool.query(
-    `SELECT tc.id,
-            tc.input_data,
-            tc.expected_output,
-            tc.is_hidden,
-            tc.points,
-            tc.order_position,
-            ls.explanation
-     FROM lesson_test_cases tc
-     LEFT JOIN lesson_solutions ls ON ls.lesson_id = tc.lesson_id
-     WHERE tc.lesson_id = ?
-     ORDER BY tc.order_position, tc.id`,
-    [lessonId]
-  )
-
-  const [acceptedRows] = await pool.query(
-    `SELECT DISTINCT judge0_submission_id
-     FROM user_submissions
-     WHERE user_id = ?
-       AND lesson_id = ?
-       AND status = 'accepted'
-       AND judge0_submission_id LIKE 'tc:%'`,
-    [userId, lessonId]
-  )
-
-  const acceptedCaseIds = new Set(
-    acceptedRows
-      .map((row) => String(row.judge0_submission_id || '').replace('tc:', ''))
-      .filter((value) => value.length > 0)
-      .map((value) => Number(value))
-      .filter((value) => Number.isInteger(value) && value > 0)
-  )
-
-  const exercises = testCases.map((testCase) => {
-    const inputText = String(testCase.input_data || '').trim()
-    const statement = testCase.is_hidden
-      ? `Caso de prueba ${testCase.order_position}. Escribe la salida esperada para este caso oculto.`
-      : `Caso de prueba ${testCase.order_position}. Input: ${inputText || '(vacio)'}. Escribe la salida exacta.`
-
-    return {
-      id: Number(testCase.id),
-      tipo: 'completar_codigo',
-      enunciado: statement,
-      codigo_base: '',
-      opciones: null,
-      pista:
-        testCase.explanation ||
-        'Revisa mayusculas, espacios y saltos de linea antes de enviar la respuesta.',
-      xp_recompensa: Number(testCase.points || 10),
-      numero: Number(testCase.order_position || 1),
-      resuelto: acceptedCaseIds.has(Number(testCase.id)),
-    }
-  })
-
-  if (exercises.length === 0) {
-    const [progressRows] = await pool.query(
-      `SELECT status
-       FROM user_progress
-       WHERE user_id = ? AND lesson_id = ?
-       LIMIT 1`,
-      [userId, lessonId]
-    )
-
-    exercises.push({
-      id: SYNTHETIC_EXERCISE_OFFSET + Number(lesson.id),
-      tipo: 'completar_codigo',
-      enunciado:
-        'Escribe una breve conclusion de lo aprendido para marcar esta leccion como completada.',
-      codigo_base: '',
-      opciones: null,
-      pista: 'Puedes escribir una frase corta, por ejemplo: "Leccion completada".',
-      xp_recompensa: 10,
-      numero: 1,
-      resuelto: progressRows[0]?.status === 'completed',
-    })
-  }
-
-  return res.status(200).json({
-    lesson: {
-      id: lesson.id,
-      titulo: lesson.title,
-      descripcion: lesson.description,
-      contenido_teoria: lesson.content,
-      tipo: 'teoria_practica',
-      xp_recompensa: DEFAULT_LESSON_XP,
-      modulo_nombre: lesson.modulo_nombre,
-      lenguaje_id: lesson.lenguaje_id,
-    },
-    exercises,
-  })
-})
-
-/**
  * POST /api/lessons/exercise/submit
  * Body: { exerciseId, answer }
  * Evalúa la respuesta del usuario.
@@ -437,4 +270,4 @@ const submitExercise = asyncHandler(async (req, res) => {
   return res.status(200).json(result)
 })
 
-module.exports = { getModules, getLessons, getLessonContent, submitExercise }
+module.exports = { getModules, getLessons, submitExercise }
