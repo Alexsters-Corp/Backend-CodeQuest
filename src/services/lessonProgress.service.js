@@ -424,8 +424,8 @@ class LessonProgressService {
     )
 
     const [streakRows] = await db.query(
-      `SELECT current_streak
-       FROM user_streaks
+      `SELECT streak_current AS current_streak
+       FROM user_stats
        WHERE user_id = ?
        LIMIT 1`,
       [userId]
@@ -453,14 +453,18 @@ class LessonProgressService {
 
   async #ensureStatsRows(db, userId) {
     await db.query(
-      `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-       VALUES (?, 0, 1, 0, 0, 0)`,
-      [userId]
-    )
-
-    await db.query(
-      `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-       VALUES (?, 0, 0)`,
+      `INSERT IGNORE INTO user_stats (
+         user_id,
+         total_xp,
+         current_level,
+         lessons_completed,
+         submissions_total,
+         submissions_accepted,
+         streak_current,
+         streak_longest,
+         last_activity_date
+       )
+       VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
       [userId]
     )
   }
@@ -495,8 +499,10 @@ class LessonProgressService {
     const today = new Date().toISOString().split('T')[0]
 
     const [streakRows] = await db.query(
-      `SELECT current_streak, longest_streak, last_activity_date
-       FROM user_streaks
+      `SELECT streak_current AS current_streak,
+              streak_longest AS longest_streak,
+              last_activity_date
+       FROM user_stats
        WHERE user_id = ?
        LIMIT 1
        FOR UPDATE`,
@@ -505,9 +511,24 @@ class LessonProgressService {
 
     if (streakRows.length === 0) {
       await db.query(
-        `INSERT INTO user_streaks (user_id, current_streak, longest_streak, last_activity_date, streak_start_date)
-         VALUES (?, 1, 1, ?, ?)`,
-        [userId, today, today]
+        `INSERT INTO user_stats (
+           user_id,
+           total_xp,
+           current_level,
+           lessons_completed,
+           submissions_total,
+           submissions_accepted,
+           streak_current,
+           streak_longest,
+           last_activity_date
+         )
+         VALUES (?, 0, 1, 0, 0, 0, 1, 1, ?)
+         ON DUPLICATE KEY UPDATE
+           streak_current = VALUES(streak_current),
+           streak_longest = GREATEST(COALESCE(streak_longest, 0), VALUES(streak_longest)),
+           last_activity_date = VALUES(last_activity_date),
+           updated_at = NOW()`,
+        [userId, today]
       )
       return
     }
@@ -516,13 +537,13 @@ class LessonProgressService {
 
     if (!streak.last_activity_date) {
       await db.query(
-        `UPDATE user_streaks
-         SET current_streak = 1,
-             longest_streak = GREATEST(longest_streak, 1),
+        `UPDATE user_stats
+         SET streak_current = 1,
+             streak_longest = GREATEST(COALESCE(streak_longest, 0), 1),
              last_activity_date = ?,
-             streak_start_date = ?
+             updated_at = NOW()
          WHERE user_id = ?`,
-        [today, today, userId]
+        [today, userId]
       )
       return
     }
@@ -541,14 +562,13 @@ class LessonProgressService {
     const maxValue = Math.max(nextValue, Number(streak.longest_streak || 0))
 
     await db.query(
-      `UPDATE user_streaks
-       SET current_streak = ?,
-           longest_streak = ?,
+      `UPDATE user_stats
+       SET streak_current = ?,
+           streak_longest = ?,
            last_activity_date = ?,
-           streak_start_date = IF(? = 1, ?, streak_start_date),
            updated_at = NOW()
        WHERE user_id = ?`,
-      [nextValue, maxValue, today, nextValue, today, userId]
+      [nextValue, maxValue, today, userId]
     )
   }
 

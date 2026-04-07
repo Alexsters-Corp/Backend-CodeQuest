@@ -262,14 +262,18 @@ class DiagnosticService {
       )
 
       await db.query(
-        `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-         VALUES (?, 0, 1, 0, 0, 0)`,
-        [userId]
-      )
-
-      await db.query(
-        `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-         VALUES (?, 0, 0)`,
+        `INSERT IGNORE INTO user_stats (
+           user_id,
+           total_xp,
+           current_level,
+           lessons_completed,
+           submissions_total,
+           submissions_accepted,
+           streak_current,
+           streak_longest,
+           last_activity_date
+         )
+         VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
         [userId]
       )
     })
@@ -312,14 +316,18 @@ class DiagnosticService {
       }
 
       await db.query(
-        `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-         VALUES (?, 0, 1, 0, 0, 0)`,
-        [userId]
-      )
-
-      await db.query(
-        `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-         VALUES (?, 0, 0)`,
+        `INSERT IGNORE INTO user_stats (
+           user_id,
+           total_xp,
+           current_level,
+           lessons_completed,
+           submissions_total,
+           submissions_accepted,
+           streak_current,
+           streak_longest,
+           last_activity_date
+         )
+         VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
         [userId]
       )
     })

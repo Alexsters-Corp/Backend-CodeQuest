@@ -12,18 +12,21 @@ function isSchemaMismatchError(error) {
 }
 
 async function ensureUserMetricsRows(userId) {
-  await Promise.allSettled([
-    pool.query(
-      `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-       VALUES (?, 0, 1, 0, 0, 0)`,
-      [userId]
-    ),
-    pool.query(
-      `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-       VALUES (?, 0, 0)`,
-      [userId]
-    ),
-  ])
+  await pool.query(
+    `INSERT IGNORE INTO user_stats (
+       user_id,
+       total_xp,
+       current_level,
+       lessons_completed,
+       submissions_total,
+       submissions_accepted,
+       streak_current,
+       streak_longest,
+       last_activity_date
+     )
+     VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
+    [userId]
+  )
 }
 
 /**
@@ -116,12 +119,6 @@ const selectLanguage = asyncHandler(async (req, res) => {
                                selected_at = NOW(),
                                last_accessed_at = NOW()`,
       [userId, paths[0].id]
-    )
-
-    await pool.query(
-      `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-       VALUES (?, 0, 0)`,
-      [userId]
     )
 
     await ensureUserMetricsRows(userId)
