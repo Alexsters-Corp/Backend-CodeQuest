@@ -252,6 +252,16 @@ class DiagnosticService {
       }
 
       await db.query(
+        `DELETE ulp
+         FROM user_learning_paths ulp
+         JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+         WHERE ulp.user_id = ?
+           AND lp.programming_language_id = ?
+           AND ulp.learning_path_id <> ?`,
+        [userId, languageId, selectedPath.id]
+      )
+
+      await db.query(
         `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
          VALUES (?, ?, 0.00, NOW(), NOW())
          ON DUPLICATE KEY UPDATE
@@ -262,14 +272,18 @@ class DiagnosticService {
       )
 
       await db.query(
-        `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-         VALUES (?, 0, 1, 0, 0, 0)`,
-        [userId]
-      )
-
-      await db.query(
-        `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-         VALUES (?, 0, 0)`,
+        `INSERT IGNORE INTO user_stats (
+           user_id,
+           total_xp,
+           current_level,
+           lessons_completed,
+           submissions_total,
+           submissions_accepted,
+           streak_current,
+           streak_longest,
+           last_activity_date
+         )
+         VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
         [userId]
       )
     })
@@ -301,6 +315,16 @@ class DiagnosticService {
         }
 
         await db.query(
+          `DELETE ulp
+           FROM user_learning_paths ulp
+           JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+           WHERE ulp.user_id = ?
+             AND lp.programming_language_id = ?
+             AND ulp.learning_path_id <> ?`,
+          [userId, languageId, defaultPathRows[0].id]
+        )
+
+        await db.query(
           `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
            VALUES (?, ?, 0.00, NOW(), NOW())
            ON DUPLICATE KEY UPDATE
@@ -312,14 +336,18 @@ class DiagnosticService {
       }
 
       await db.query(
-        `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-         VALUES (?, 0, 1, 0, 0, 0)`,
-        [userId]
-      )
-
-      await db.query(
-        `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-         VALUES (?, 0, 0)`,
+        `INSERT IGNORE INTO user_stats (
+           user_id,
+           total_xp,
+           current_level,
+           lessons_completed,
+           submissions_total,
+           submissions_accepted,
+           streak_current,
+           streak_longest,
+           last_activity_date
+         )
+         VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
         [userId]
       )
     })
