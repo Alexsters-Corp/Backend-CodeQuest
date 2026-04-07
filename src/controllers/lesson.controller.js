@@ -12,18 +12,21 @@ const DIFFICULTY_ORDER_SQL =
   "CASE lp.difficulty_level WHEN 'principiante' THEN 1 WHEN 'intermedio' THEN 2 ELSE 3 END"
 
 async function ensureUserStatsRows(userId) {
-  await Promise.allSettled([
-    pool.query(
-      `INSERT IGNORE INTO user_stats (user_id, total_xp, current_level, lessons_completed, submissions_total, submissions_accepted)
-       VALUES (?, 0, 1, 0, 0, 0)`,
-      [userId]
-    ),
-    pool.query(
-      `INSERT IGNORE INTO user_streaks (user_id, current_streak, longest_streak)
-       VALUES (?, 0, 0)`,
-      [userId]
-    ),
-  ])
+  await pool.query(
+    `INSERT IGNORE INTO user_stats (
+       user_id,
+       total_xp,
+       current_level,
+       lessons_completed,
+       submissions_total,
+       submissions_accepted,
+       streak_current,
+       streak_longest,
+       last_activity_date
+     )
+     VALUES (?, 0, 1, 0, 0, 0, 0, 0, NULL)`,
+    [userId]
+  )
 }
 
 function mapPathState({ pathIndex, selectedIndex, totalLessons, completedLessons }) {
@@ -86,11 +89,13 @@ async function resolvePathModules({ userId, languageId }) {
   )
 
   const [selectedRows] = await pool.query(
-    `SELECT learning_path_id
-     FROM user_learning_paths
-     WHERE user_id = ?
+    `SELECT ulp.learning_path_id
+     FROM user_learning_paths ulp
+     JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+     WHERE ulp.user_id = ? AND lp.programming_language_id = ?
+     ORDER BY ulp.selected_at DESC, ulp.id DESC
      LIMIT 1`,
-    [userId]
+    [userId, languageId]
   )
 
   let selectedPathId = Number(selectedRows[0]?.learning_path_id || 0)
@@ -98,6 +103,17 @@ async function resolvePathModules({ userId, languageId }) {
 
   if (!hasSelectedPathInLanguage) {
     selectedPathId = Number(paths[0].id)
+
+    await pool.query(
+      `DELETE ulp
+       FROM user_learning_paths ulp
+       JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+       WHERE ulp.user_id = ?
+         AND lp.programming_language_id = ?
+         AND ulp.learning_path_id <> ?`,
+      [userId, languageId, selectedPathId]
+    )
+
     await pool.query(
       `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
        VALUES (?, ?, 0.00, NOW(), NOW())

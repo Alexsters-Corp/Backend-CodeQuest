@@ -78,6 +78,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', routeTo(AUTH_SERVICE_URL))
 app.use('/api/users', routeTo(AUTH_SERVICE_URL))
 app.use('/api/languages', routeTo(LEARNING_SERVICE_URL))
+app.use('/api/learning-paths', routeTo(LEARNING_SERVICE_URL))
 app.use('/api/diagnostic', routeTo(LEARNING_SERVICE_URL))
 app.use('/api/lessons', routeTo(LEARNING_SERVICE_URL))
 app.use('/api/progress', routeTo(LEARNING_SERVICE_URL))

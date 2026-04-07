@@ -1,0 +1,4 @@
+-- DEPRECATED:
+-- Este archivo solo se mantiene como referencia historica.
+-- El esquema completo y vigente de CodeQuest se encuentra en:
+--   database/schema.sql

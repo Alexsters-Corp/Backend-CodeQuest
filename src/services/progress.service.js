@@ -26,10 +26,10 @@ class ProgressService {
         params: [userId],
       },
       fallback: {
-        sql: `SELECT current_streak AS racha_actual,
-                     longest_streak AS racha_maxima,
+        sql: `SELECT streak_current AS racha_actual,
+                     streak_longest AS racha_maxima,
                      last_activity_date AS ultimo_dia_activo
-              FROM user_streaks
+              FROM user_stats
               WHERE user_id = ?`,
         params: [userId],
       },
@@ -57,23 +57,62 @@ class ProgressService {
         params: [userId],
       },
       fallback: {
-        sql: `SELECT pl.id AS lenguaje_id,
+        sql: `WITH ranked_paths AS (
+                SELECT ulp.id,
+                       ulp.user_id,
+                       ulp.learning_path_id,
+                       ulp.selected_at,
+                       lp.programming_language_id,
+                       ROW_NUMBER() OVER (
+                         PARTITION BY lp.programming_language_id
+                         ORDER BY ulp.selected_at DESC, ulp.id DESC
+                       ) AS rn
+                FROM user_learning_paths ulp
+                JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+                WHERE ulp.user_id = ?
+              ),
+              path_lesson_progress AS (
+                SELECT l.learning_path_id,
+                       COUNT(*) AS total_lessons,
+                       COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons
+                FROM lessons l
+                LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = ?
+                WHERE l.is_published = 1
+                GROUP BY l.learning_path_id
+              )
+              SELECT pl.id AS lenguaje_id,
                      pl.display_name AS nombre,
                      COALESCE(pl.logo_url, 'code') AS icono,
-                     lp.difficulty_level AS nivel_diagnostico,
+                     lp_selected.difficulty_level AS nivel_diagnostico,
                      1 AS diagnostico_completado,
-                     MAX(ulp.selected_at) AS fechaSeleccion,
-                     COUNT(l.id) AS modulosTotal,
-                     COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS modulosCompletados
-              FROM user_learning_paths ulp
-              JOIN learning_paths lp ON lp.id = ulp.learning_path_id
-              JOIN programming_languages pl ON pl.id = lp.programming_language_id
-              LEFT JOIN lessons l ON l.learning_path_id = lp.id AND l.is_published = 1
-              LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = ulp.user_id
-              WHERE ulp.user_id = ?
-              GROUP BY pl.id, pl.display_name, pl.logo_url, lp.difficulty_level
-              ORDER BY fechaSeleccion DESC`,
-        params: [userId],
+                     rp.selected_at AS fechaSeleccion,
+                     COUNT(DISTINCT lp_all.id) AS modulosTotal,
+                     COALESCE(
+                       SUM(
+                         CASE
+                           WHEN COALESCE(plp.total_lessons, 0) > 0
+                             AND COALESCE(plp.completed_lessons, 0) >= COALESCE(plp.total_lessons, 0)
+                           THEN 1
+                           ELSE 0
+                         END
+                       ),
+                       0
+                     ) AS modulosCompletados
+              FROM ranked_paths rp
+              JOIN learning_paths lp_selected ON lp_selected.id = rp.learning_path_id
+              JOIN programming_languages pl ON pl.id = rp.programming_language_id
+              JOIN learning_paths lp_all
+                ON lp_all.programming_language_id = pl.id
+               AND lp_all.is_active = 1
+              LEFT JOIN path_lesson_progress plp ON plp.learning_path_id = lp_all.id
+              WHERE rp.rn = 1
+              GROUP BY pl.id,
+                       pl.display_name,
+                       pl.logo_url,
+                       lp_selected.difficulty_level,
+                       rp.selected_at
+              ORDER BY rp.selected_at DESC`,
+        params: [userId, userId],
       },
     })
 
