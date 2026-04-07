@@ -4,6 +4,7 @@ require('dotenv').config()
 
 const pool = require('./config/db')
 const languageRoutes = require('./routes/language.routes')
+const learningPathRoutes = require('./routes/learningPath.routes')
 const diagnosticRoutes = require('./routes/diagnostic.routes')
 const lessonRoutes = require('./routes/lesson.routes')
 const progressRoutes = require('./routes/progress.routes')
@@ -30,6 +31,7 @@ app.get('/internal/health', async (_req, res) => {
 })
 
 app.use('/api/languages', languageRoutes)
+app.use('/api/learning-paths', learningPathRoutes)
 app.use('/api/diagnostic', diagnosticRoutes)
 app.use('/api/lessons', lessonRoutes)
 app.use('/api/progress', progressRoutes)

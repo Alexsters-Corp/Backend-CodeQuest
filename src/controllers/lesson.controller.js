@@ -88,11 +88,13 @@ async function resolvePathModules({ userId, languageId }) {
   )
 
   const [selectedRows] = await pool.query(
-    `SELECT learning_path_id
-     FROM user_learning_paths
-     WHERE user_id = ?
+    `SELECT ulp.learning_path_id
+     FROM user_learning_paths ulp
+     JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+     WHERE ulp.user_id = ? AND lp.programming_language_id = ?
+     ORDER BY ulp.selected_at DESC, ulp.id DESC
      LIMIT 1`,
-    [userId]
+    [userId, languageId]
   )
 
   let selectedPathId = Number(selectedRows[0]?.learning_path_id || 0)
@@ -100,6 +102,17 @@ async function resolvePathModules({ userId, languageId }) {
 
   if (!hasSelectedPathInLanguage) {
     selectedPathId = Number(paths[0].id)
+
+    await pool.query(
+      `DELETE ulp
+       FROM user_learning_paths ulp
+       JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+       WHERE ulp.user_id = ?
+         AND lp.programming_language_id = ?
+         AND ulp.learning_path_id <> ?`,
+      [userId, languageId, selectedPathId]
+    )
+
     await pool.query(
       `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
        VALUES (?, ?, 0.00, NOW(), NOW())

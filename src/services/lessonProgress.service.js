@@ -375,6 +375,16 @@ class LessonProgressService {
 
     const learningPathId = Number(lessonRows[0].learning_path_id)
 
+    const [pathRows] = await db.query(
+      `SELECT programming_language_id
+       FROM learning_paths
+       WHERE id = ?
+       LIMIT 1`,
+      [learningPathId]
+    )
+
+    const languageId = Number(pathRows[0]?.programming_language_id || 0)
+
     const [totalsRows] = await db.query(
       `SELECT COUNT(*) AS total_lessons,
               COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons
@@ -387,6 +397,18 @@ class LessonProgressService {
     const totalLessons = Number(totalsRows[0]?.total_lessons || 0)
     const completedLessons = Number(totalsRows[0]?.completed_lessons || 0)
     const percent = totalLessons > 0 ? (completedLessons * 100) / totalLessons : 0
+
+    if (languageId > 0) {
+      await db.query(
+        `DELETE ulp
+         FROM user_learning_paths ulp
+         JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+         WHERE ulp.user_id = ?
+           AND lp.programming_language_id = ?
+           AND ulp.learning_path_id <> ?`,
+        [userId, languageId, learningPathId]
+      )
+    }
 
     await db.query(
       `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)

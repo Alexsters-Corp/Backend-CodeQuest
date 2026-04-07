@@ -252,6 +252,16 @@ class DiagnosticService {
       }
 
       await db.query(
+        `DELETE ulp
+         FROM user_learning_paths ulp
+         JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+         WHERE ulp.user_id = ?
+           AND lp.programming_language_id = ?
+           AND ulp.learning_path_id <> ?`,
+        [userId, languageId, selectedPath.id]
+      )
+
+      await db.query(
         `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
          VALUES (?, ?, 0.00, NOW(), NOW())
          ON DUPLICATE KEY UPDATE
@@ -303,6 +313,16 @@ class DiagnosticService {
         if (defaultPathRows.length === 0) {
           throw AppError.notFound('No hay rutas activas para este lenguaje.')
         }
+
+        await db.query(
+          `DELETE ulp
+           FROM user_learning_paths ulp
+           JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+           WHERE ulp.user_id = ?
+             AND lp.programming_language_id = ?
+             AND ulp.learning_path_id <> ?`,
+          [userId, languageId, defaultPathRows[0].id]
+        )
 
         await db.query(
           `INSERT INTO user_learning_paths (user_id, learning_path_id, progress_percentage, selected_at, last_accessed_at)
