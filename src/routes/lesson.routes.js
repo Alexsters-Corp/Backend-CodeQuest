@@ -5,9 +5,10 @@ const lessonAccessGuard = require('../middleware/lessonAccessGuard')
 const lessonRateLimit = require('../middleware/lessonRateLimit')
 const featureFlagGuard = require('../middleware/featureFlagGuard')
 const { getLessonById } = require('../controllers/lessons.controller')
-const { getModules, getLessons, submitExercise } = require('../controllers/lesson.controller')
+const { getModules, getLessons, submitExercise, getCompletedLessons } = require('../controllers/lesson.controller')
 
 router.get('/modules', authGuard, getModules)
+router.get('/completed', authGuard, getCompletedLessons)
 router.get('/module/:moduleId', authGuard, getLessons)
 router.get(
 	'/:id',

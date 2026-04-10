@@ -270,4 +270,64 @@ const submitExercise = asyncHandler(async (req, res) => {
   return res.status(200).json(result)
 })
 
-module.exports = { getModules, getLessons, submitExercise }
+/**
+ * GET /api/lessons/completed
+ * Lista todas las lecciones completadas por el usuario autenticado.
+ * El id retornado puede usarse para acceder nuevamente via GET /api/lessons/:id
+ */
+const getCompletedLessons = asyncHandler(async (req, res) => {
+  const userId = req.user.id
+
+  const [rows] = await pool.query(
+    `SELECT
+       l.id,
+       l.title AS titulo,
+       COALESCE(l.description, '') AS descripcion,
+       l.order_position AS numero,
+       l.xp_reward AS xp_recompensa,
+       up.xp_earned AS xp_obtenido,
+       up.completed_at AS completada_en,
+       lp.id AS modulo_id,
+       lp.name AS modulo_nombre,
+       lp.difficulty_level AS dificultad,
+       pl.id AS lenguaje_id,
+       pl.display_name AS lenguaje_nombre,
+       COALESCE(pl.logo_url, 'code') AS lenguaje_icono
+     FROM user_progress up
+     JOIN lessons l ON l.id = up.lesson_id
+     JOIN learning_paths lp ON lp.id = l.learning_path_id
+     JOIN programming_languages pl ON pl.id = lp.programming_language_id
+     WHERE up.user_id = ?
+       AND up.status = 'completed'
+       AND l.is_published = 1
+     ORDER BY up.completed_at DESC`,
+    [userId]
+  )
+
+  const lessons = rows.map((row) => ({
+    id: Number(row.id),
+    titulo: row.titulo,
+    descripcion: row.descripcion,
+    numero: Number(row.numero),
+    xp_recompensa: Number(row.xp_recompensa || 0),
+    xp_obtenido: Number(row.xp_obtenido || 0),
+    completada_en: row.completada_en,
+    modulo: {
+      id: Number(row.modulo_id),
+      nombre: row.modulo_nombre,
+      dificultad: row.dificultad,
+    },
+    lenguaje: {
+      id: Number(row.lenguaje_id),
+      nombre: row.lenguaje_nombre,
+      icono: row.lenguaje_icono,
+    },
+  }))
+
+  return res.status(200).json({
+    total: lessons.length,
+    lessons,
+  })
+})
+
+module.exports = { getModules, getLessons, submitExercise, getCompletedLessons }
