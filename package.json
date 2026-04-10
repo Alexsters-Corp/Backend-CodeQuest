@@ -1,23 +1,20 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
-  "description": "",
-  "main": "src/server.js",
-  "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "name": "codequest-backend",
+  "version": "2.0.0",
+  "private": true,
   "type": "commonjs",
-  "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "mysql2": "^3.19.0",
-    "nodemailer": "^8.0.4"
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w @codequest/auth-service\" \"npm run dev -w @codequest/learning-service\" \"npm run dev -w @codequest/api-gateway\"",
+    "start": "concurrently \"npm run start -w @codequest/auth-service\" \"npm run start -w @codequest/learning-service\" \"npm run start -w @codequest/api-gateway\"",
+    "dev:gateway": "npm run dev -w @codequest/api-gateway",
+    "dev:auth": "npm run dev -w @codequest/auth-service",
+    "dev:learning": "npm run dev -w @codequest/learning-service"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }

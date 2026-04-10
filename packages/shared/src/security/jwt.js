@@ -1,0 +1,39 @@
+const jwt = require('jsonwebtoken')
+
+function createJwtToolkit({
+  accessSecret,
+  refreshSecret,
+  accessExpiresIn = '15m',
+  refreshExpiresIn = '7d',
+}) {
+  if (!accessSecret || !refreshSecret) {
+    throw new Error('JWT secrets son requeridos para inicializar createJwtToolkit.')
+  }
+
+  function signAccessToken(payload) {
+    return jwt.sign(payload, accessSecret, { expiresIn: accessExpiresIn })
+  }
+
+  function signRefreshToken(payload) {
+    return jwt.sign(payload, refreshSecret, { expiresIn: refreshExpiresIn })
+  }
+
+  function verifyAccessToken(token) {
+    return jwt.verify(token, accessSecret)
+  }
+
+  function verifyRefreshToken(token) {
+    return jwt.verify(token, refreshSecret)
+  }
+
+  return {
+    signAccessToken,
+    signRefreshToken,
+    verifyAccessToken,
+    verifyRefreshToken,
+  }
+}
+
+module.exports = {
+  createJwtToolkit,
+}

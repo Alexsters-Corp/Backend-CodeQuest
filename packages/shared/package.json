@@ -1,0 +1,14 @@
+{
+  "name": "@codequest/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.19.0"
+  }
+}

@@ -114,6 +114,35 @@ CREATE TABLE `user_learning_paths` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
+-- TABLA: user_diagnostic_attempts
+-- Descripcion: Intentos de diagnostico por lenguaje y usuario
+-- ============================================================
+CREATE TABLE `user_diagnostic_attempts` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT UNSIGNED NOT NULL,
+    `programming_language_id` INT UNSIGNED NOT NULL,
+    `status` ENUM('in_progress', 'completed', 'abandoned') DEFAULT 'in_progress',
+    `total_questions` INT UNSIGNED NOT NULL,
+    `correct_answers` INT UNSIGNED DEFAULT 0,
+    `weighted_score` DECIMAL(6,2) DEFAULT 0.00,
+    `score_percentage` DECIMAL(5,2) DEFAULT 0.00,
+    `assigned_level` ENUM('principiante', 'intermedio', 'avanzado') NULL,
+    `assigned_path_id` INT UNSIGNED NULL,
+    `answers_json` LONGTEXT NULL,
+    `started_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `completed_at` DATETIME NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`programming_language_id`) REFERENCES `programming_languages`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`assigned_path_id`) REFERENCES `learning_paths`(`id`) ON DELETE SET NULL,
+    INDEX `idx_user_language` (`user_id`, `programming_language_id`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_completed_at` (`completed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- TABLA: lessons
 -- Descripcion: Contenido de lecciones (Sprint 2 - HU-007)
 -- ============================================================
@@ -258,6 +287,23 @@ CREATE TABLE `user_favorites` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
+-- TABLA: user_favorite_paths
+-- Descripcion: Rutas favoritas por usuario (learning-service)
+-- ============================================================
+CREATE TABLE `user_favorite_paths` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT UNSIGNED NOT NULL,
+    `learning_path_id` INT UNSIGNED NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`learning_path_id`) REFERENCES `learning_paths`(`id`) ON DELETE CASCADE,
+    UNIQUE KEY `unique_user_path_favorite` (`user_id`, `learning_path_id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_learning_path_id` (`learning_path_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- TABLA: user_stats
 -- Descripcion: Estadisticas XP/niveles (Sprint 4 - HU-016)
 -- ============================================================
@@ -361,18 +407,39 @@ CREATE TABLE `email_verifications` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
+-- TABLA: auth_tokens
+-- Descripcion: Tokens de verificacion y recuperacion para auth-service
+-- ============================================================
+CREATE TABLE `auth_tokens` (
+    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT UNSIGNED NOT NULL,
+    `token_hash` CHAR(64) NOT NULL,
+    `token_type` ENUM('reset_password', 'verify_email') NOT NULL,
+    `expires_at` DATETIME NOT NULL,
+    `used_at` DATETIME NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY `uq_auth_tokens_hash_type` (`token_hash`, `token_type`),
+    INDEX `idx_auth_tokens_user_id` (`user_id`),
+    INDEX `idx_auth_tokens_expires_at` (`expires_at`),
+    INDEX `idx_auth_tokens_token_type` (`token_type`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- TABLA: token_blacklist
 -- Descripcion: Tokens JWT invalidados (Sprint 1 - HU-005)
 -- ============================================================
 CREATE TABLE `token_blacklist` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT UNSIGNED NOT NULL,
-    `token_jti` VARCHAR(255) NOT NULL UNIQUE,
+    `token_hash` CHAR(64) NOT NULL UNIQUE,
     `expires_at` DATETIME NOT NULL,
+    `revoked_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
-    INDEX `idx_token_jti` (`token_jti`),
+    INDEX `idx_token_hash` (`token_hash`),
     INDEX `idx_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

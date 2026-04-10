@@ -1,0 +1,135 @@
+version: '3.9'
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: codequest-mariadb
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: codequest
+      MYSQL_DATABASE: codequest
+      MYSQL_USER: codequest
+      MYSQL_PASSWORD: codequest
+    ports:
+      - '3306:3306'
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-pcodequest']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: codequest-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: codequest-auth-service
+    restart: unless-stopped
+    env_file:
+      - services/auth-service/.env
+    environment:
+      NODE_ENV: development
+      PORT: 4001
+      FRONTEND_URL: http://localhost:5000
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_USER: codequest
+      DB_PASSWORD: codequest
+      DB_NAME: codequest
+      DB_CONNECTION_LIMIT: 10
+      JWT_ACCESS_SECRET: change_me_access_secret
+      JWT_REFRESH_SECRET: change_me_refresh_secret
+      JWT_ACCESS_EXPIRES: 15m
+      JWT_REFRESH_EXPIRES: 7d
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '4001:4001'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  learning-service:
+    build:
+      context: .
+      dockerfile: services/learning-service/Dockerfile
+    container_name: codequest-learning-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 4002
+      FRONTEND_URL: http://localhost:5000
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_USER: codequest
+      DB_PASSWORD: codequest
+      DB_NAME: codequest
+      DB_CONNECTION_LIMIT: 10
+      FEATURE_LEARNING_PATHS: 'true'
+      FEATURE_LEARNING_LESSONS: 'true'
+      FEATURE_LEARNING_PROGRESS: 'true'
+      FEATURE_LEARNING_FAVORITES: 'true'
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '4002:4002'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: codequest-api-gateway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      FRONTEND_URL: http://localhost:5000
+      AUTH_SERVICE_URL: http://auth-service:4001
+      LEARNING_SERVICE_URL: http://learning-service:4002
+      JWT_ACCESS_SECRET: change_me_access_secret
+      JWT_REFRESH_SECRET: change_me_refresh_secret
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+    ports:
+      - '4000:4000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mariadb_data:
