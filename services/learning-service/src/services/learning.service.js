@@ -147,18 +147,18 @@ function repairMojibake(value) {
     .replace(/Ã­/g, 'í')
     .replace(/Ã³/g, 'ó')
     .replace(/Ãº/g, 'ú')
-    .replace(/Ã/g, 'Á')
+    .replace(/Ã/g, 'Á')
     .replace(/Ã‰/g, 'É')
-    .replace(/Ã/g, 'Í')
-    .replace(/Ã“/g, 'Ó')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã"/g, 'Ó')
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã±/g, 'ñ')
-    .replace(/Ã‘/g, 'Ñ')
+    .replace(/Ã'/g, 'Ñ')
     .replace(/Â¿/g, '¿')
     .replace(/Â¡/g, '¡')
-    .replace(/â|â/g, '"')
-    .replace(/â/g, "'")
-    .replace(/â|â/g, '-')
+    .replace(/â|â/g, '"')
+    .replace(/â/g, "'")
+    .replace(/â|â/g, '-')
     .replace(/\uFFFD/g, '')
 }
 
@@ -168,7 +168,7 @@ function sanitizeDisplayText(value) {
 
 function hasCorruptedGlyphs(value) {
   const text = String(value || '')
-  return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
+  return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
 }
 
 function buildLessonExerciseBank(lesson) {
@@ -1202,6 +1202,25 @@ class LearningService {
     await this.schemaGuardService.assertGroup('diagnostic')
 
     return this.classManagementRepository.getGlobalAnalytics()
+  }
+
+  async listCompletedLessons(userId) {
+    await this.schemaGuardService.assertGroup('lessons')
+    await this.schemaGuardService.assertGroup('progress')
+
+    const rows = await this.lessonsRepository.listCompleted(userId)
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      description: row.description,
+      learning_path_id: Number(row.learning_path_id),
+      learning_path_name: row.learning_path_name,
+      order_position: Number(row.order_position),
+      xp_reward: Number(row.xp_reward),
+      xp_earned: Number(row.xp_earned),
+      completed_at: row.completed_at,
+    }))
   }
 }
 

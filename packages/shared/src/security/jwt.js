@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken')
 function createJwtToolkit({
   accessSecret,
   refreshSecret,
-  accessExpiresIn = '15m',
+  accessExpiresIn = '3h',
   refreshExpiresIn = '7d',
 }) {
   if (!accessSecret || !refreshSecret) {

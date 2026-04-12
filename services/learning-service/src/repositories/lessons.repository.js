@@ -48,6 +48,30 @@ class LessonsRepository {
 
     return rows[0] || null
   }
+
+  async listCompleted(userId) {
+    const [rows] = await this.pool.query(
+      `SELECT l.id,
+              l.learning_path_id,
+              lp.name AS learning_path_name,
+              l.title,
+              COALESCE(l.description, '') AS description,
+              l.order_position,
+              l.xp_reward,
+              up.xp_earned,
+              up.completed_at
+       FROM user_progress up
+       JOIN lessons l ON l.id = up.lesson_id
+       JOIN learning_paths lp ON lp.id = l.learning_path_id
+       WHERE up.user_id = ?
+         AND up.status = 'completed'
+         AND l.is_published = 1
+       ORDER BY up.completed_at DESC`,
+      [userId]
+    )
+
+    return rows
+  }
 }
 
 module.exports = LessonsRepository
