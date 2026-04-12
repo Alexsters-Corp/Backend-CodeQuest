@@ -217,6 +217,27 @@ class AuthService {
     return mapUserPayload(user)
   }
 
+  async updateProfile({ userId, nombre, email }) {
+    await this.schemaGuardService.assertReady()
+
+    const currentUser = await this.userRepository.findById(userId)
+    if (!currentUser) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const existingWithEmail = await this.userRepository.findByEmail(email)
+    if (existingWithEmail && Number(existingWithEmail.id) !== Number(userId)) {
+      throw AppError.conflict('El email ya esta registrado.', 'EMAIL_ALREADY_REGISTERED')
+    }
+
+    const updatedUser = await this.userRepository.updateProfileById(userId, {
+      name: nombre,
+      email,
+    })
+
+    return mapUserPayload(updatedUser)
+  }
+
   async listUsers({ actorUserId, search, role, status, limit, offset }) {
     await this.schemaGuardService.assertReady()
 

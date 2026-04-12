@@ -79,6 +79,19 @@ class UserRepository {
     )
   }
 
+  async updateProfileById(userId, { name, email }) {
+    await this.pool.query(
+      `UPDATE users
+       SET name = ?,
+           email = ?,
+           updated_at = NOW()
+       WHERE id = ?`,
+      [name, email, userId]
+    )
+
+    return this.findById(userId)
+  }
+
   async listUsers({ search, role, status, limit = 50, offset = 0 }) {
     const conditions = ['1 = 1']
     const params = []
