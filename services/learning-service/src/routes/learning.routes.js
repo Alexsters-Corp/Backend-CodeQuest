@@ -14,6 +14,7 @@ const {
 } = require('../controllers/lessons.controller')
 const { getOverview, completeLesson } = require('../controllers/progress.controller')
 const { listPathFavorites, togglePathFavorite } = require('../controllers/favorites.controller')
+const { submitSolution } = require('../controllers/submissions.controller')
 
 const router = express.Router()
 
@@ -45,5 +46,8 @@ router.post('/progress/lessons/:lessonId/complete', featureFlagGuard('progress')
 
 router.get('/favorites/paths', featureFlagGuard('favorites'), requireGatewayUser, listPathFavorites)
 router.post('/favorites/paths/:pathId/toggle', featureFlagGuard('favorites'), requireGatewayUser, togglePathFavorite)
+
+// Issue #31: Gestionar envíos de soluciones y actualización de progreso
+router.post('/submissions', featureFlagGuard('progress'), requireGatewayUser, submitSolution)
 
 module.exports = router

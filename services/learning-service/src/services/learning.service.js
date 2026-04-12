@@ -128,18 +128,18 @@ function repairMojibake(value) {
     .replace(/Ã­/g, 'í')
     .replace(/Ã³/g, 'ó')
     .replace(/Ãº/g, 'ú')
-    .replace(/Ã/g, 'Á')
+    .replace(/Ã/g, 'Á')
     .replace(/Ã‰/g, 'É')
-    .replace(/Ã/g, 'Í')
-    .replace(/Ã“/g, 'Ó')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã"/g, 'Ó')
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã±/g, 'ñ')
-    .replace(/Ã‘/g, 'Ñ')
+    .replace(/Ã'/g, 'Ñ')
     .replace(/Â¿/g, '¿')
     .replace(/Â¡/g, '¡')
-    .replace(/â|â/g, '"')
-    .replace(/â/g, "'")
-    .replace(/â|â/g, '-')
+    .replace(/â|â/g, '"')
+    .replace(/â/g, "'")
+    .replace(/â|â/g, '-')
     .replace(/\uFFFD/g, '')
 }
 
@@ -149,7 +149,7 @@ function sanitizeDisplayText(value) {
 
 function hasCorruptedGlyphs(value) {
   const text = String(value || '')
-  return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
+  return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
 }
 
 function buildLessonExerciseBank(lesson) {
@@ -275,6 +275,7 @@ class LearningService {
     progressRepository,
     favoritesRepository,
     diagnosticRepository,
+    submissionsRepository,
     schemaGuardService,
     diagnosticQuestionBank,
   }) {
@@ -283,6 +284,7 @@ class LearningService {
     this.progressRepository = progressRepository
     this.favoritesRepository = favoritesRepository
     this.diagnosticRepository = diagnosticRepository
+    this.submissionsRepository = submissionsRepository
     this.schemaGuardService = schemaGuardService
     this.diagnosticQuestionBank = diagnosticQuestionBank
   }
@@ -939,6 +941,62 @@ class LearningService {
     return {
       path_id: pathId,
       favorite,
+    }
+  }
+
+  // ── Issue #31: Gestionar envíos de soluciones y actualización de progreso ──
+  async submitSolution({ userId, lessonId, languageId, code, testCasesPassed, testCasesTotal, status }) {
+    await this.schemaGuardService.assertGroup('lessons')
+    await this.schemaGuardService.assertGroup('progress')
+
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    if (!lesson) {
+      throw AppError.notFound('Lección no encontrada.')
+    }
+
+    const isAccepted = status === 'accepted'
+    const pointsEarned = isAccepted ? Number(lesson.xp_reward || 0) : 0
+
+    // Registrar el nuevo envío (siempre, sin excepción)
+    const submissionId = await this.submissionsRepository.createSubmission({
+      userId,
+      lessonId,
+      languageId,
+      codeSubmitted: code,
+      status,
+      testCasesPassed,
+      testCasesTotal,
+      pointsEarned,
+    })
+
+    // Obtener el mejor envío previo para comparar
+    const bestPrevious = await this.submissionsRepository.getBestSubmission({ userId, lessonId })
+
+    // Solo actualizar progreso si el nuevo resultado es estrictamente mejor
+    // "mejor" = más puntos ganados, o si hay empate en puntos, más casos pasados
+    const previousPoints = Number(bestPrevious?.points_earned ?? 0)
+    const previousTestsPassed = Number(bestPrevious?.test_cases_passed ?? 0)
+
+    const isNewBetter =
+      pointsEarned > previousPoints ||
+      (pointsEarned === previousPoints && testCasesPassed > previousTestsPassed)
+
+    if (isNewBetter && isAccepted) {
+      await this.progressRepository.markLessonCompleted({
+        userId,
+        lessonId,
+        xpReward: lesson.xp_reward,
+      })
+    }
+
+    return {
+      submission_id: submissionId,
+      lesson_id: lessonId,
+      status,
+      test_cases_passed: testCasesPassed,
+      test_cases_total: testCasesTotal,
+      points_earned: pointsEarned,
+      progress_updated: isNewBetter && isAccepted,
     }
   }
 }
