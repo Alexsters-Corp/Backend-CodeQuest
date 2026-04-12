@@ -5,6 +5,7 @@ const { env } = require('./config/env')
 const { pool } = require('./services/container')
 const authRoutes = require('./routes/auth.routes')
 const userRoutes = require('./routes/user.routes')
+const adminRoutes = require('./routes/admin.routes')
 
 const app = express()
 
@@ -28,6 +29,7 @@ app.get('/internal/health', asyncHandler(async (_req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
+app.use('/api/admin', adminRoutes)
 
 app.use(notFoundHandler)
 app.use(errorHandler)

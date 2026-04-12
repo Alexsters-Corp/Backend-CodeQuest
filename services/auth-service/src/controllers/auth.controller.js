@@ -1,4 +1,4 @@
-const { asyncHandler, requireFields, parseString } = require('@codequest/shared')
+const { asyncHandler, requireFields, parsePositiveInt, parseString } = require('@codequest/shared')
 const { authService } = require('../services/container')
 
 const register = asyncHandler(async (req, res) => {
@@ -78,6 +78,27 @@ const verifyEmail = asyncHandler(async (req, res) => {
   return res.status(200).json({ message: 'Email verificado correctamente.' })
 })
 
+const getMe = asyncHandler(async (req, res) => {
+  const user = await authService.getProfile({ userId: req.user.id })
+  return res.status(200).json({ user })
+})
+
+const changeUserRole = asyncHandler(async (req, res) => {
+  requireFields(req.body, ['userId', 'role'])
+
+  const result = await authService.updateUserRole({
+    actorUserId: req.user.id,
+    targetUserId: parsePositiveInt(req.body.userId, 'userId'),
+    role: parseString(req.body.role, 'role'),
+    isActive: req.body.isActive,
+  })
+
+  return res.status(200).json({
+    message: 'Rol de usuario actualizado correctamente.',
+    ...result,
+  })
+})
+
 module.exports = {
   register,
   login,
@@ -86,4 +107,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   verifyEmail,
+  getMe,
+  changeUserRole,
 }

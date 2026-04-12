@@ -121,6 +121,25 @@ function stripTrailingSemicolon(value) {
   return String(value || '').replace(/;+\s*$/, '').trim()
 }
 
+function slugify(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+}
+
+function createInviteCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = 'CQ-'
+  for (let index = 0; index < 8; index += 1) {
+    code += alphabet[Math.floor(Math.random() * alphabet.length)]
+  }
+  return code
+}
+
 function repairMojibake(value) {
   return String(value || '')
     .replace(/Ã¡/g, 'á')
@@ -275,6 +294,7 @@ class LearningService {
     progressRepository,
     favoritesRepository,
     diagnosticRepository,
+    classManagementRepository,
     schemaGuardService,
     diagnosticQuestionBank,
   }) {
@@ -283,6 +303,7 @@ class LearningService {
     this.progressRepository = progressRepository
     this.favoritesRepository = favoritesRepository
     this.diagnosticRepository = diagnosticRepository
+    this.classManagementRepository = classManagementRepository
     this.schemaGuardService = schemaGuardService
     this.diagnosticQuestionBank = diagnosticQuestionBank
   }
@@ -940,6 +961,247 @@ class LearningService {
       path_id: pathId,
       favorite,
     }
+  }
+
+  async createInstructorClass({ instructorUserId, name, description }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const normalizedName = String(name || '').trim()
+    if (normalizedName.length < 3) {
+      throw AppError.badRequest('El nombre de la clase debe tener al menos 3 caracteres.', 'VALIDATION_ERROR')
+    }
+
+    const created = await this.classManagementRepository.createClass({
+      instructorUserId,
+      name: normalizedName,
+      description: String(description || '').trim() || null,
+    })
+
+    return {
+      class: {
+        id: Number(created.id),
+        name: created.name,
+        description: created.description,
+        is_active: Boolean(created.is_active),
+        created_at: created.created_at,
+      },
+    }
+  }
+
+  async listInstructorClasses({ instructorUserId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    const classes = await this.classManagementRepository.listClassesByInstructor(instructorUserId)
+    return {
+      classes: classes.map((item) => ({
+        id: Number(item.id),
+        name: item.name,
+        description: item.description,
+        is_active: Boolean(item.is_active),
+        students_total: Number(item.students_total || 0),
+        assigned_paths_total: Number(item.assigned_paths_total || 0),
+        created_at: item.created_at,
+      })),
+    }
+  }
+
+  async generateClassInvite({ actorUserId, actorRole, classId, inviteEmail, expiresAt, maxUses }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes generar invitaciones para una clase que no te pertenece.')
+    }
+
+    const klass = ownedClass || (await this.classManagementRepository.findClassById(classId))
+    if (!klass) {
+      throw AppError.notFound('Clase no encontrada.')
+    }
+
+    let invite
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const code = createInviteCode()
+      try {
+        invite = await this.classManagementRepository.createInviteCode({
+          classId,
+          code,
+          inviteEmail,
+          expiresAt,
+          maxUses,
+          createdByUserId: actorUserId,
+        })
+        break
+      } catch (error) {
+        if (error?.code !== 'ER_DUP_ENTRY') {
+          throw error
+        }
+      }
+    }
+
+    if (!invite) {
+      throw AppError.conflict('No se pudo generar un código único de invitación. Intenta de nuevo.')
+    }
+
+    return {
+      invite: {
+        id: Number(invite.id),
+        class_id: Number(invite.class_id),
+        code: invite.code,
+        invite_email: invite.invite_email,
+        expires_at: invite.expires_at,
+        max_uses: invite.max_uses,
+        used_count: Number(invite.used_count || 0),
+        is_active: Boolean(invite.is_active),
+        created_at: invite.created_at,
+      },
+    }
+  }
+
+  async assignPathToClass({ actorUserId, actorRole, classId, learningPathId, isRequired }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    await this.schemaGuardService.assertGroup('base')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes asignar rutas en una clase que no te pertenece.')
+    }
+
+    const path = await this.pathsRepository.findById(learningPathId)
+    if (!path) {
+      throw AppError.notFound('Ruta de aprendizaje no encontrada.')
+    }
+
+    const assignment = await this.classManagementRepository.assignPathToClass({
+      classId,
+      learningPathId,
+      isRequired,
+      assignedByUserId: actorUserId,
+    })
+
+    return {
+      assignment: {
+        class_id: Number(assignment.class_id),
+        learning_path_id: Number(assignment.learning_path_id),
+        learning_path_name: assignment.learning_path_name,
+        difficulty_level: assignment.difficulty_level,
+        is_required: Boolean(assignment.is_required),
+        assigned_at: assignment.assigned_at,
+      },
+    }
+  }
+
+  async getClassAnalytics({ actorUserId, actorRole, classId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes ver analytics de una clase que no te pertenece.')
+    }
+
+    const analytics = await this.classManagementRepository.getClassAnalytics(classId)
+
+    return {
+      class_id: classId,
+      summary: {
+        students_total: Number(analytics.summary.students_total || 0),
+        completed_lessons_total: Number(analytics.summary.completed_lessons_total || 0),
+        lessons_started_total: Number(analytics.summary.lessons_started_total || 0),
+        progress_signal_avg: Number(analytics.summary.progress_signal_avg || 0),
+      },
+      students: analytics.students.map((row) => ({
+        id: Number(row.id),
+        name: row.name,
+        email: row.email,
+        completed_lessons: Number(row.completed_lessons || 0),
+        started_lessons: Number(row.started_lessons || 0),
+        earned_xp: Number(row.earned_xp || 0),
+      })),
+    }
+  }
+
+  async adminCreateLearningPath({
+    programmingLanguageId,
+    name,
+    slug,
+    description,
+    difficultyLevel,
+    estimatedHours,
+    isActive,
+  }) {
+    await this.schemaGuardService.assertGroup('rbac_admin')
+    await this.schemaGuardService.assertGroup('base')
+
+    const validDifficulties = ['principiante', 'intermedio', 'avanzado']
+    if (!validDifficulties.includes(difficultyLevel)) {
+      throw AppError.badRequest('difficultyLevel invalido. Usa principiante, intermedio o avanzado.')
+    }
+
+    const language = await this.pathsRepository.findLanguageById(programmingLanguageId)
+    if (!language) {
+      throw AppError.notFound('Lenguaje no encontrado o no disponible.')
+    }
+
+    const normalizedName = String(name || '').trim()
+    if (normalizedName.length < 3) {
+      throw AppError.badRequest('name debe tener al menos 3 caracteres.')
+    }
+
+    const finalSlug = String(slug || '').trim() || slugify(normalizedName)
+    if (!finalSlug) {
+      throw AppError.badRequest('No se pudo generar slug válido para la ruta.')
+    }
+
+    let created
+    try {
+      created = await this.classManagementRepository.createLearningPath({
+        programmingLanguageId,
+        name: normalizedName,
+        slug: finalSlug,
+        description: String(description || '').trim() || null,
+        difficultyLevel,
+        estimatedHours,
+        isActive: isActive !== false,
+      })
+    } catch (error) {
+      if (error?.code === 'ER_DUP_ENTRY') {
+        throw AppError.conflict('Ya existe una ruta con ese slug.', 'DUPLICATE_LEARNING_PATH_SLUG')
+      }
+      throw error
+    }
+
+    return {
+      learning_path: {
+        id: Number(created.id),
+        programming_language_id: Number(created.programming_language_id),
+        name: created.name,
+        slug: created.slug,
+        description: created.description,
+        difficulty_level: created.difficulty_level,
+        estimated_hours: created.estimated_hours,
+        is_active: Boolean(created.is_active),
+        created_at: created.created_at,
+      },
+    }
+  }
+
+  async getAdminAnalytics() {
+    await this.schemaGuardService.assertGroup('rbac_admin')
+    await this.schemaGuardService.assertGroup('base')
+    await this.schemaGuardService.assertGroup('progress')
+    await this.schemaGuardService.assertGroup('diagnostic')
+
+    return this.classManagementRepository.getGlobalAnalytics()
   }
 }
 

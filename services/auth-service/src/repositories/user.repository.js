@@ -7,7 +7,13 @@ class UserRepository {
   async findByEmail(email) {
     const verifiedColumn = await this.#resolveVerifiedColumn()
     const [rows] = await this.pool.query(
-      `SELECT id, name, email, password_hash, ${verifiedColumn} AS is_email_verified
+      `SELECT id,
+              name,
+              email,
+              password_hash,
+              role,
+              is_active,
+              ${verifiedColumn} AS is_email_verified
        FROM users
        WHERE email = ?
        LIMIT 1`,
@@ -20,7 +26,12 @@ class UserRepository {
   async findById(id) {
     const verifiedColumn = await this.#resolveVerifiedColumn()
     const [rows] = await this.pool.query(
-      `SELECT id, name, email, ${verifiedColumn} AS is_email_verified
+      `SELECT id,
+              name,
+              email,
+              role,
+              is_active,
+              ${verifiedColumn} AS is_email_verified
        FROM users
        WHERE id = ?
        LIMIT 1`,
@@ -65,6 +76,103 @@ class UserRepository {
        SET last_login_at = NOW(), updated_at = NOW()
        WHERE id = ?`,
       [userId]
+    )
+  }
+
+  async listUsers({ search, role, status, limit = 50, offset = 0 }) {
+    const conditions = ['1 = 1']
+    const params = []
+
+    if (search) {
+      conditions.push('(u.name LIKE ? OR u.email LIKE ? OR u.username LIKE ?)')
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`)
+    }
+
+    if (role) {
+      conditions.push('u.role = ?')
+      params.push(role)
+    }
+
+    if (status === 'active') {
+      conditions.push('u.is_active = 1')
+    }
+
+    if (status === 'inactive') {
+      conditions.push('u.is_active = 0')
+    }
+
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50))
+    const safeOffset = Math.max(0, Number(offset) || 0)
+
+    const [rows] = await this.pool.query(
+      `SELECT u.id,
+              u.email,
+              u.name,
+              u.username,
+              u.role,
+              u.is_active,
+              u.email_verified,
+              u.last_login_at,
+              u.created_at,
+              u.updated_at
+       FROM users u
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY u.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, safeOffset]
+    )
+
+    return rows
+  }
+
+  async updateRoleAndStatus({ userId, role, isActive }) {
+    const updates = []
+    const params = []
+
+    if (role !== undefined) {
+      updates.push('role = ?')
+      params.push(role)
+    }
+
+    if (isActive !== undefined) {
+      updates.push('is_active = ?')
+      params.push(isActive ? 1 : 0)
+    }
+
+    if (updates.length === 0) {
+      return this.findById(userId)
+    }
+
+    await this.pool.query(
+      `UPDATE users
+       SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE id = ?`,
+      [...params, userId]
+    )
+
+    return this.findById(userId)
+  }
+
+  async createAdminAuditLog({ adminUserId, action, entityType, entityId, oldValue, newValue }) {
+    await this.pool.query(
+      `INSERT INTO admin_audit_log (
+          admin_user_id,
+          action,
+          entity_type,
+          entity_id,
+          old_value,
+          new_value,
+          created_at
+        )
+       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        adminUserId,
+        action,
+        entityType || null,
+        entityId || null,
+        oldValue ? JSON.stringify(oldValue) : null,
+        newValue ? JSON.stringify(newValue) : null,
+      ]
     )
   }
 

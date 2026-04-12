@@ -5,7 +5,17 @@ const errorHandler = require('./http/errorHandler')
 const notFoundHandler = require('./http/notFoundHandler')
 const { requireFields, parsePositiveInt, parseString } = require('./validation/request')
 const { createJwtToolkit } = require('./security/jwt')
+const {
+  ROLE_USER,
+  ROLE_INSTRUCTOR,
+  ROLE_ADMIN,
+  normalizeRole,
+  getPermissionsForRole,
+  hasPermission,
+  isAllowedRole,
+} = require('./security/roles')
 const { createAuthGuard, extractBearerToken } = require('./middleware/authGuard')
+const { authorize } = require('./middleware/authorize')
 const { createDbPool } = require('./db/createDbPool')
 const TableSchemaRepository = require('./db/TableSchemaRepository')
 
@@ -19,8 +29,16 @@ module.exports = {
   parsePositiveInt,
   parseString,
   createJwtToolkit,
+  ROLE_USER,
+  ROLE_INSTRUCTOR,
+  ROLE_ADMIN,
+  normalizeRole,
+  getPermissionsForRole,
+  hasPermission,
+  isAllowedRole,
   createAuthGuard,
   extractBearerToken,
+  authorize,
   createDbPool,
   TableSchemaRepository,
 }

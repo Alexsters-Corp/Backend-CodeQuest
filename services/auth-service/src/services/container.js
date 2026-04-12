@@ -43,6 +43,7 @@ const authGuard = createAuthGuard({
 
 module.exports = {
   pool,
+  userRepository,
   authService,
   authGuard,
   schemaGuardService,
