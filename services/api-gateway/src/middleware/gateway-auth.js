@@ -1,4 +1,4 @@
-const { AppError, extractBearerToken } = require('@codequest/shared')
+const { AppError, extractBearerToken, normalizeRole } = require('@codequest/shared')
 
 function isPublicLearningRoute(req) {
   if (req.method !== 'GET') {
@@ -25,6 +25,7 @@ function createGatewayAuth({ verifyAccessToken }) {
       req.gatewayUser = {
         id: decoded.id,
         email: decoded.email,
+        role: normalizeRole(decoded.role),
       }
       req.gatewayToken = token
       return next()

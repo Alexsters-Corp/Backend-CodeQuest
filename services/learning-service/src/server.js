@@ -4,6 +4,8 @@ const { asyncHandler, errorHandler, notFoundHandler } = require('@codequest/shar
 const { env } = require('./config/env')
 const { pool } = require('./services/container')
 const learningRoutes = require('./routes/learning.routes')
+const instructorRoutes = require('./routes/instructor.routes')
+const adminRoutes = require('./routes/admin.routes')
 
 const app = express()
 
@@ -26,6 +28,8 @@ app.get('/internal/health', asyncHandler(async (_req, res) => {
 }))
 
 app.use('/api/learning', learningRoutes)
+app.use('/api/instructor', instructorRoutes)
+app.use('/api/admin', adminRoutes)
 
 app.use(notFoundHandler)
 app.use(errorHandler)

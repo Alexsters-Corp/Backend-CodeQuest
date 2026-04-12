@@ -95,6 +95,7 @@ const proxyLearningService = createProxyMiddleware({
       if (req.gatewayUser) {
         proxyReq.setHeader('x-user-id', String(req.gatewayUser.id))
         proxyReq.setHeader('x-user-email', req.gatewayUser.email || '')
+        proxyReq.setHeader('x-user-role', req.gatewayUser.role || 'user')
       }
     },
   },
@@ -106,7 +107,10 @@ const gatewayAuth = createGatewayAuth({
 
 app.use('/api/auth', authLimiter, proxyAuthService)
 app.use('/api/users', authLimiter, proxyAuthService)
+app.use('/api/admin/users', authLimiter, gatewayAuth, proxyAuthService)
 app.use('/api/learning', learningLimiter, gatewayAuth, proxyLearningService)
+app.use('/api/instructor', learningLimiter, gatewayAuth, proxyLearningService)
+app.use('/api/admin', learningLimiter, gatewayAuth, proxyLearningService)
 
 app.use(notFoundHandler)
 app.use(errorHandler)

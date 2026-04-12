@@ -1,4 +1,5 @@
 const AppError = require('../errors/AppError')
+const { normalizeRole } = require('../security/roles')
 
 function extractBearerToken(req) {
   const header = req.headers.authorization
@@ -44,6 +45,7 @@ function createAuthGuard({ verifyAccessToken, isTokenRevoked } = {}) {
     req.user = {
       id: decoded.id,
       email: decoded.email,
+      role: normalizeRole(decoded.role),
     }
 
     return next()

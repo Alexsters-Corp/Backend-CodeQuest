@@ -1,7 +1,25 @@
 const bcrypt = require('bcryptjs')
-const { AppError } = require('@codequest/shared')
-const { extractBearerToken } = require('@codequest/shared')
+const {
+  AppError,
+  extractBearerToken,
+  ROLE_ADMIN,
+  normalizeRole,
+  getPermissionsForRole,
+} = require('@codequest/shared')
 const { hashToken, newRawToken } = require('../utils/tokenHash')
+
+function mapUserPayload(user) {
+  const role = normalizeRole(user.role)
+  return {
+    id: user.id,
+    nombre: user.name,
+    email: user.email,
+    role,
+    permisos: getPermissionsForRole(role),
+    email_verificado: Boolean(user.is_email_verified),
+    is_active: Boolean(user.is_active),
+  }
+}
 
 class AuthService {
   constructor({
@@ -37,14 +55,11 @@ class AuthService {
 
     await this.#createAndSendVerifyEmailToken(user)
 
+    const role = normalizeRole(user.role)
+
     return {
-      user: {
-        id: user.id,
-        nombre: user.name,
-        email: user.email,
-        email_verificado: Boolean(user.is_email_verified),
-      },
-      accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email }),
+      user: mapUserPayload(user),
+      accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email, role }),
       refreshToken: this.jwtToolkit.signRefreshToken({ id: user.id }),
     }
   }
@@ -57,6 +72,10 @@ class AuthService {
       throw AppError.unauthorized('Credenciales incorrectas.')
     }
 
+    if (!user.is_active) {
+      throw AppError.forbidden('Tu cuenta se encuentra desactivada.', 'ACCOUNT_DISABLED')
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password_hash)
     if (!isPasswordValid) {
       throw AppError.unauthorized('Credenciales incorrectas.')
@@ -64,14 +83,11 @@ class AuthService {
 
     await this.userRepository.touchLastLogin(user.id)
 
+    const role = normalizeRole(user.role)
+
     return {
-      user: {
-        id: user.id,
-        nombre: user.name,
-        email: user.email,
-        email_verificado: Boolean(user.is_email_verified),
-      },
-      accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email }),
+      user: mapUserPayload(user),
+      accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email, role }),
       refreshToken: this.jwtToolkit.signRefreshToken({ id: user.id }),
     }
   }
@@ -91,8 +107,14 @@ class AuthService {
       throw AppError.unauthorized('Usuario no encontrado.')
     }
 
+    if (!user.is_active) {
+      throw AppError.forbidden('Tu cuenta se encuentra desactivada.', 'ACCOUNT_DISABLED')
+    }
+
+    const role = normalizeRole(user.role)
+
     return {
-      accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email }),
+      accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email, role }),
     }
   }
 
@@ -192,11 +214,100 @@ class AuthService {
       throw AppError.notFound('Usuario no encontrado.')
     }
 
+    return mapUserPayload(user)
+  }
+
+  async listUsers({ actorUserId, search, role, status, limit, offset }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario actor no encontrado.')
+    }
+
+    if (normalizeRole(actor.role) !== ROLE_ADMIN) {
+      throw AppError.forbidden('Acceso denegado: permisos insuficientes.', 'INSUFFICIENT_ROLE')
+    }
+
+    const rows = await this.userRepository.listUsers({ search, role, status, limit, offset })
     return {
-      id: user.id,
-      nombre: user.name,
-      email: user.email,
-      email_verificado: Boolean(user.is_email_verified),
+      users: rows.map((row) => ({
+        id: Number(row.id),
+        email: row.email,
+        nombre: row.name,
+        username: row.username,
+        role: normalizeRole(row.role),
+        is_active: Boolean(row.is_active),
+        email_verificado: Boolean(row.email_verified),
+        last_login_at: row.last_login_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      })),
+    }
+  }
+
+  async updateUserRole({ actorUserId, targetUserId, role, isActive }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario actor no encontrado.')
+    }
+
+    if (normalizeRole(actor.role) !== ROLE_ADMIN) {
+      throw AppError.forbidden('Acceso denegado: permisos insuficientes.', 'INSUFFICIENT_ROLE')
+    }
+
+    const target = await this.userRepository.findById(targetUserId)
+    if (!target) {
+      throw AppError.notFound('Usuario objetivo no encontrado.')
+    }
+
+    let normalizedRole
+    if (role !== undefined) {
+      const rawRole = String(role || '').trim().toLowerCase()
+      const roleMap = {
+        user: 'user',
+        student: 'user',
+        instructor: 'instructor',
+        admin: 'admin',
+      }
+
+      normalizedRole = roleMap[rawRole]
+      if (!normalizedRole) {
+        throw AppError.badRequest('role invalido. Usa user, instructor o admin.', 'VALIDATION_ERROR')
+      }
+    }
+
+    const before = {
+      role: normalizeRole(target.role),
+      is_active: Boolean(target.is_active),
+    }
+
+    const updated = await this.userRepository.updateRoleAndStatus({
+      userId: targetUserId,
+      role: normalizedRole,
+      isActive,
+    })
+
+    try {
+      await this.userRepository.createAdminAuditLog({
+        adminUserId: actorUserId,
+        action: 'user.role_or_status.updated',
+        entityType: 'users',
+        entityId: targetUserId,
+        oldValue: before,
+        newValue: {
+          role: normalizeRole(updated.role),
+          is_active: Boolean(updated.is_active),
+        },
+      })
+    } catch (error) {
+      console.warn('[RBAC] No se pudo registrar audit log para updateUserRole:', error?.message || error)
+    }
+
+    return {
+      user: mapUserPayload(updated),
     }
   }
 
