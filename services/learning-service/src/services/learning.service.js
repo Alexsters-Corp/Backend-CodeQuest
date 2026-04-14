@@ -295,6 +295,7 @@ class LearningService {
     favoritesRepository,
     diagnosticRepository,
     classManagementRepository,
+    submissionsRepository,
     schemaGuardService,
     diagnosticQuestionBank,
   }) {
@@ -304,6 +305,7 @@ class LearningService {
     this.favoritesRepository = favoritesRepository
     this.diagnosticRepository = diagnosticRepository
     this.classManagementRepository = classManagementRepository
+    this.submissionsRepository = submissionsRepository
     this.schemaGuardService = schemaGuardService
     this.diagnosticQuestionBank = diagnosticQuestionBank
   }
@@ -1202,6 +1204,70 @@ class LearningService {
     await this.schemaGuardService.assertGroup('diagnostic')
 
     return this.classManagementRepository.getGlobalAnalytics()
+  }
+
+  async submitSolution({ userId, lessonId, code, languageId }) {
+    await this.schemaGuardService.assertGroup('lessons')
+    await this.schemaGuardService.assertGroup('progress')
+    await this.schemaGuardService.assertGroup('submissions')
+
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    if (!lesson) {
+      throw AppError.notFound('Lección no encontrada.')
+    }
+
+    const exerciseBank = buildLessonExerciseBank(lesson)
+    const testCasesTotal = exerciseBank.length
+    const submittedCode = String(code || '').trim()
+
+    // Determinar si es un reintento perfecto (código especial enviado desde el frontend)
+    const isPerfectRetry = submittedCode.startsWith('retry:perfect')
+    const testCasesPassed = isPerfectRetry ? testCasesTotal : 0
+    const status = isPerfectRetry ? 'accepted' : 'wrong_answer'
+    const xpEarned = isPerfectRetry ? Number(lesson.xp_reward || 0) : 0
+    const resolvedLanguageId = Number(languageId || lesson.programming_language_id || 1)
+
+    const submissionId = await this.submissionsRepository.createSubmission({
+      userId,
+      lessonId,
+      languageId: resolvedLanguageId,
+      codeSubmitted: submittedCode,
+      status,
+      testCasesPassed,
+      testCasesTotal,
+      pointsEarned: xpEarned,
+    })
+
+    let progressUpdated = false
+    if (isPerfectRetry) {
+      const currentProgress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
+      const currentXp = Number(currentProgress?.xp_earned || 0)
+      const bonusXp = xpEarned + 10 // +10 bonus por reintento perfecto
+
+      if (bonusXp > currentXp) {
+        await this.progressRepository.upsertProgressIfBetter({
+          userId,
+          lessonId,
+          newXp: bonusXp,
+          newStatus: 'completed',
+        })
+      }
+      // El envío fue aceptado: progressUpdated siempre es true para reintentos perfectos
+      progressUpdated = true
+    }
+
+    const updatedProgress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
+
+    return {
+      submissionId,
+      status,
+      accepted: isPerfectRetry,
+      testCasesPassed,
+      testCasesTotal,
+      xpEarned: isPerfectRetry ? xpEarned + 10 : 0,
+      progressUpdated,
+      progress: updatedProgress || null,
+    }
   }
 
   async listCompletedLessons(userId) {

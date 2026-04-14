@@ -12,6 +12,7 @@ const {
 	getLessonSession,
 	submitLessonExercise,
 	listCompletedLessons,
+	submitSolution,
 } = require('../controllers/lessons.controller')
 const { getOverview, completeLesson } = require('../controllers/progress.controller')
 const { listPathFavorites, togglePathFavorite } = require('../controllers/favorites.controller')
@@ -40,6 +41,12 @@ router.post(
 	featureFlagGuard('progress'),
 	requireGatewayUser,
 	submitLessonExercise
+)
+router.post(
+	'/lessons/:lessonId/submit',
+	featureFlagGuard('progress'),
+	requireGatewayUser,
+	submitSolution
 )
 
 router.get('/progress/overview', featureFlagGuard('progress'), requireGatewayUser, getOverview)

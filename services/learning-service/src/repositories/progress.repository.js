@@ -32,6 +32,36 @@ class ProgressRepository {
     )
   }
 
+  async getProgressForLesson({ userId, lessonId }) {
+    const [rows] = await this.pool.query(
+      `SELECT status, xp_earned, submission_count
+       FROM user_progress
+       WHERE user_id = ? AND lesson_id = ?
+       LIMIT 1`,
+      [userId, lessonId]
+    )
+
+    return rows[0] || null
+  }
+
+  async upsertProgressIfBetter({ userId, lessonId, newXp, newStatus }) {
+    const normalizedXp = Number.isFinite(Number(newXp)) ? Math.max(0, Number(newXp)) : 0
+
+    await this.pool.query(
+      `INSERT INTO user_progress
+         (user_id, lesson_id, status, xp_earned, started_at, completed_at, last_accessed_at, submission_count, updated_at)
+       VALUES (?, ?, ?, ?, NOW(), IF(? = 'completed', NOW(), NULL), NOW(), 1, NOW())
+       ON DUPLICATE KEY UPDATE
+         status           = IF(status = 'completed', 'completed', VALUES(status)),
+         xp_earned        = GREATEST(xp_earned, VALUES(xp_earned)),
+         completed_at     = IF(status != 'completed' AND VALUES(status) = 'completed', NOW(), completed_at),
+         last_accessed_at = NOW(),
+         submission_count = submission_count + 1,
+         updated_at       = NOW()`,
+      [userId, lessonId, newStatus, normalizedXp, newStatus]
+    )
+  }
+
   async getPathLessonStatsByLanguage({ userId, languageId }) {
     const [rows] = await this.pool.query(
       `SELECT lp.id AS path_id,

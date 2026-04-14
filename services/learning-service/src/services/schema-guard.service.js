@@ -6,6 +6,7 @@ const TABLE_GROUPS = {
   progress: ['user_progress'],
   favorites: ['user_favorite_paths'],
   diagnostic: ['user_diagnostic_attempts', 'user_learning_paths'],
+  submissions: ['user_submissions'],
   rbac_instructor: ['users', 'instructor_classes', 'class_students', 'class_invite_codes', 'class_learning_paths'],
   rbac_admin: ['users', 'learning_paths', 'admin_audit_log'],
 }
