@@ -17,6 +17,7 @@ class ProgressRepository {
     return rows[0] || { total_lessons: 0, completed_lessons: 0, total_xp: 0 }
   }
 
+  // Marca la lección como completada en user_progress (solo estado, sin tocar user_stats)
   async markLessonCompleted({ userId, lessonId, xpReward }) {
     const normalizedXp = Number.isFinite(Number(xpReward)) ? Math.max(0, Number(xpReward)) : 0
 
@@ -79,16 +80,18 @@ class ProgressRepository {
     return rows
   }
 
+  // Fuente de verdad del XP acumulado total (racha + total_xp)
   async getStreakOverview(userId) {
     const [rows] = await this.pool.query(
       `SELECT COALESCE(MAX(streak_current), 0) AS streak_current,
-              COALESCE(MAX(streak_longest), 0) AS streak_longest
+              COALESCE(MAX(streak_longest), 0) AS streak_longest,
+              COALESCE(MAX(total_xp), 0) AS total_xp
        FROM user_stats
        WHERE user_id = ?`,
       [userId]
     )
 
-    return rows[0] || { streak_current: 0, streak_longest: 0 }
+    return rows[0] || { streak_current: 0, streak_longest: 0, total_xp: 0 }
   }
 
   async getLessonStatsByLanguage({ userId, languageId }) {
@@ -105,6 +108,22 @@ class ProgressRepository {
     )
 
     return rows[0] || { started_lessons: 0, completed_lessons: 0, earned_xp: 0 }
+  }
+
+  // Suma XP al acumulado total del usuario (user_stats.total_xp)
+  async addXpToStats({ userId, xp }) {
+    const normalizedXp = Math.max(0, Number(xp) || 0)
+    if (normalizedXp === 0) return
+
+    await this.pool.query(
+      `INSERT INTO user_stats (user_id, total_xp, submissions_total)
+       VALUES (?, ?, 1)
+       ON DUPLICATE KEY UPDATE
+         total_xp          = total_xp + ?,
+         submissions_total = submissions_total + 1,
+         updated_at        = NOW()`,
+      [userId, normalizedXp, normalizedXp]
+    )
   }
 
   async deleteProgressByLanguage({ userId, languageId }) {

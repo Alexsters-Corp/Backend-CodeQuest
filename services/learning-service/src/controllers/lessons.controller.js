@@ -55,6 +55,9 @@ const submitSolution = asyncHandler(async (req, res) => {
     lessonId,
     code: req.body?.code,
     languageId: req.body?.language_id,
+    correctCount: req.body?.correct_count,
+    totalExercises: req.body?.total_exercises,
+    isRetry: req.body?.is_retry,
   })
 
   return res.status(200).json(result)

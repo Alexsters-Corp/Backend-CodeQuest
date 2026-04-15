@@ -752,7 +752,8 @@ class LearningService {
 
     languages.sort((a, b) => a.nombre.localeCompare(b.nombre))
 
-    const totalXp = Number(progress.total_xp || 0)
+    // user_stats.total_xp es la fuente de verdad del XP acumulado
+    const totalXp = Number(streak.total_xp || 0)
 
     return {
       xpTotal: totalXp,
@@ -928,14 +929,10 @@ class LearningService {
       }
     }
 
-    const isLastExercise = selectedExercise.numero === exerciseBank.length
-    if (isLastExercise) {
-      await this.markLessonCompleted({ userId, lessonId })
-    }
-
+    // El XP ya no se otorga por ejercicio individual — se calcula al final en submitSolution
     return {
       isCorrect: true,
-      xpGained: Number(selectedExercise.xp_recompensa || 0),
+      xpGained: 0,
       hint: null,
       correctAnswer: null,
     }
@@ -1206,7 +1203,7 @@ class LearningService {
     return this.classManagementRepository.getGlobalAnalytics()
   }
 
-  async submitSolution({ userId, lessonId, code, languageId }) {
+  async submitSolution({ userId, lessonId, code, languageId, correctCount, totalExercises, isRetry }) {
     await this.schemaGuardService.assertGroup('lessons')
     await this.schemaGuardService.assertGroup('progress')
     await this.schemaGuardService.assertGroup('submissions')
@@ -1216,44 +1213,49 @@ class LearningService {
       throw AppError.notFound('Lección no encontrada.')
     }
 
-    const exerciseBank = buildLessonExerciseBank(lesson)
-    const testCasesTotal = exerciseBank.length
-    const submittedCode = String(code || '').trim()
-
-    // Determinar si es un reintento perfecto (código especial enviado desde el frontend)
-    const isPerfectRetry = submittedCode.startsWith('retry:perfect')
-    const testCasesPassed = isPerfectRetry ? testCasesTotal : 0
-    const status = isPerfectRetry ? 'accepted' : 'wrong_answer'
-    const xpEarned = isPerfectRetry ? Number(lesson.xp_reward || 0) : 0
+    const exerciseBank  = buildLessonExerciseBank(lesson)
+    const totalEx       = Number(totalExercises) || exerciseBank.length
+    const correctEx     = Math.min(Math.max(Number(correctCount) || 0, 0), totalEx)
+    const isRetryAttempt = Boolean(isRetry)
     const resolvedLanguageId = Number(languageId || lesson.programming_language_id || 1)
+    const xpReward      = Number(lesson.xp_reward || 0)
 
+    // --- Calcular XP según reglas ---
+    let xpEarned = 0
+    if (!isRetryAttempt) {
+      // Primera vez: proporcional a correctas — Math.round para redondeo correcto
+      xpEarned = Math.round(xpReward * correctEx / totalEx)
+    } else {
+      // Retry: >50% correcto → 20 XP, ≤50% (o todo mal) → 10 XP
+      const pct = totalEx > 0 ? correctEx / totalEx : 0
+      xpEarned  = pct > 0.5 ? 20 : 10
+    }
+
+    const allCorrect = correctEx === totalEx
+    const status     = allCorrect ? 'accepted' : 'wrong_answer'
+
+    // --- Guardar submission ---
     const submissionId = await this.submissionsRepository.createSubmission({
       userId,
       lessonId,
       languageId: resolvedLanguageId,
-      codeSubmitted: submittedCode,
+      codeSubmitted: String(code || '').trim(),
       status,
-      testCasesPassed,
-      testCasesTotal,
+      testCasesPassed: correctEx,
+      testCasesTotal: totalEx,
       pointsEarned: xpEarned,
     })
 
-    let progressUpdated = false
-    if (isPerfectRetry) {
-      const currentProgress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
-      const currentXp = Number(currentProgress?.xp_earned || 0)
-      const bonusXp = xpEarned + 10 // +10 bonus por reintento perfecto
+    // --- Sumar XP al acumulado del usuario ---
+    await this.progressRepository.addXpToStats({ userId, xp: xpEarned })
 
-      if (bonusXp > currentXp) {
-        await this.progressRepository.upsertProgressIfBetter({
-          userId,
-          lessonId,
-          newXp: bonusXp,
-          newStatus: 'completed',
-        })
-      }
-      // El envío fue aceptado: progressUpdated siempre es true para reintentos perfectos
-      progressUpdated = true
+    // --- Marcar lección como completada si fue la primera vez con todos correctos ---
+    if (!isRetryAttempt && allCorrect) {
+      await this.progressRepository.markLessonCompleted({
+        userId,
+        lessonId,
+        xpReward,
+      })
     }
 
     const updatedProgress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
@@ -1261,11 +1263,11 @@ class LearningService {
     return {
       submissionId,
       status,
-      accepted: isPerfectRetry,
-      testCasesPassed,
-      testCasesTotal,
-      xpEarned: isPerfectRetry ? xpEarned + 10 : 0,
-      progressUpdated,
+      accepted: allCorrect,
+      testCasesPassed: correctEx,
+      testCasesTotal: totalEx,
+      xpEarned,
+      progressUpdated: true,
       progress: updatedProgress || null,
     }
   }
