@@ -15,7 +15,7 @@ const {
 	submitSolution,
 } = require('../controllers/lessons.controller')
 const { getOverview, completeLesson } = require('../controllers/progress.controller')
-const { listPathFavorites, togglePathFavorite } = require('../controllers/favorites.controller')
+const { listPathFavorites, togglePathFavorite, listLessonFavorites, toggleLessonFavorite } = require('../controllers/favorites.controller')
 
 const router = express.Router()
 
@@ -54,5 +54,8 @@ router.post('/progress/lessons/:lessonId/complete', featureFlagGuard('progress')
 
 router.get('/favorites/paths', featureFlagGuard('favorites'), requireGatewayUser, listPathFavorites)
 router.post('/favorites/paths/:pathId/toggle', featureFlagGuard('favorites'), requireGatewayUser, togglePathFavorite)
+
+router.get('/favorites/lessons', featureFlagGuard('favorites'), requireGatewayUser, listLessonFavorites)
+router.post('/favorites/lessons/:lessonId/toggle', featureFlagGuard('favorites'), requireGatewayUser, toggleLessonFavorite)
 
 module.exports = router

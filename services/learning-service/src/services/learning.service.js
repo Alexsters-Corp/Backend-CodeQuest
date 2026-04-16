@@ -962,6 +962,30 @@ class LearningService {
     }
   }
 
+  async listLessonFavorites(userId) {
+    await this.schemaGuardService.assertGroup('favorites')
+    await this.schemaGuardService.assertGroup('base')
+
+    return this.favoritesRepository.listLessonFavorites(userId)
+  }
+
+  async toggleLessonFavorite({ userId, lessonId }) {
+    await this.schemaGuardService.assertGroup('favorites')
+    await this.schemaGuardService.assertGroup('base')
+
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    if (!lesson) {
+      throw AppError.notFound('Lección no encontrada.')
+    }
+
+    const favorite = await this.favoritesRepository.toggleLessonFavorite({ userId, lessonId })
+
+    return {
+      lesson_id: lessonId,
+      favorite,
+    }
+  }
+
   async createInstructorClass({ instructorUserId, name, description }) {
     await this.schemaGuardService.assertGroup('rbac_instructor')
 
