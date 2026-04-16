@@ -36,6 +36,8 @@ CREATE TABLE `users` (
     `username` VARCHAR(50) NULL UNIQUE,
     `bio` TEXT NULL,
     `avatar_url` VARCHAR(500) NULL,
+    `country_code` CHAR(2) NULL,
+    `birth_date` DATE NULL,
     `role` ENUM('student', 'admin', 'instructor') DEFAULT 'student',
     `email_verified` BOOLEAN DEFAULT FALSE,
     `is_active` BOOLEAN DEFAULT TRUE,

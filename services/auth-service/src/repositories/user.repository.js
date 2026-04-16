@@ -2,10 +2,12 @@ class UserRepository {
   constructor({ pool }) {
     this.pool = pool
     this.verifiedColumnPromise = null
+    this.profileColumnsPromise = null
   }
 
   async findByEmail(email) {
     const verifiedColumn = await this.#resolveVerifiedColumn()
+    const profileSelect = await this.#buildProfileSelectColumns()
     const [rows] = await this.pool.query(
       `SELECT id,
               name,
@@ -13,6 +15,7 @@ class UserRepository {
               password_hash,
               role,
               is_active,
+              ${profileSelect},
               ${verifiedColumn} AS is_email_verified
        FROM users
        WHERE email = ?
@@ -25,12 +28,14 @@ class UserRepository {
 
   async findById(id) {
     const verifiedColumn = await this.#resolveVerifiedColumn()
+    const profileSelect = await this.#buildProfileSelectColumns()
     const [rows] = await this.pool.query(
       `SELECT id,
               name,
               email,
               role,
               is_active,
+              ${profileSelect},
               ${verifiedColumn} AS is_email_verified
        FROM users
        WHERE id = ?
@@ -79,14 +84,37 @@ class UserRepository {
     )
   }
 
-  async updateProfileById(userId, { name, email }) {
+  async updateProfileById(userId, { name, email, username, avatarUrl, countryCode, birthDate }) {
+    const profileColumns = await this.#resolveProfileColumns()
+    const updates = ['name = ?', 'email = ?']
+    const params = [name, email]
+
+    if (profileColumns.username) {
+      updates.push('username = ?')
+      params.push(username)
+    }
+
+    if (profileColumns.avatar_url) {
+      updates.push('avatar_url = ?')
+      params.push(avatarUrl)
+    }
+
+    if (profileColumns.country_code) {
+      updates.push('country_code = ?')
+      params.push(countryCode)
+    }
+
+    if (profileColumns.birth_date) {
+      updates.push('birth_date = ?')
+      params.push(birthDate)
+    }
+
     await this.pool.query(
       `UPDATE users
-       SET name = ?,
-           email = ?,
+       SET ${updates.join(', ')},
            updated_at = NOW()
        WHERE id = ?`,
-      [name, email, userId]
+      [...params, userId]
     )
 
     return this.findById(userId)
@@ -217,6 +245,47 @@ class UserRepository {
     }
 
     throw new Error('La tabla users no contiene columna de verificacion de email compatible.')
+  }
+
+  async #buildProfileSelectColumns() {
+    const profileColumns = await this.#resolveProfileColumns()
+    const candidates = [
+      ['username', profileColumns.username],
+      ['avatar_url', profileColumns.avatar_url],
+      ['country_code', profileColumns.country_code],
+      ['birth_date', profileColumns.birth_date],
+    ]
+
+    return candidates
+      .map(([column, exists]) => (exists ? column : `NULL AS ${column}`))
+      .join(',\n              ')
+  }
+
+  async #resolveProfileColumns() {
+    if (!this.profileColumnsPromise) {
+      this.profileColumnsPromise = this.#detectProfileColumns()
+    }
+
+    return this.profileColumnsPromise
+  }
+
+  async #detectProfileColumns() {
+    const [rows] = await this.pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'users'
+         AND column_name IN ('username', 'avatar_url', 'country_code', 'birth_date')`
+    )
+
+    const columns = new Set(rows.map((row) => row.column_name || row.COLUMN_NAME))
+
+    return {
+      username: columns.has('username'),
+      avatar_url: columns.has('avatar_url'),
+      country_code: columns.has('country_code'),
+      birth_date: columns.has('birth_date'),
+    }
   }
 }
 

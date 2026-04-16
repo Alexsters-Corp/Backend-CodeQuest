@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   mariadb:
     image: mariadb:10.11
@@ -36,6 +34,22 @@ services:
       timeout: 5s
       retries: 10
 
+  db-migrator:
+    image: mariadb:10.11
+    container_name: codequest-db-migrator
+    restart: 'no'
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      MYSQL_PWD: codequest
+    volumes:
+      - ./database:/migrations:ro
+    command:
+      - /bin/sh
+      - -c
+      - mysql -hmariadb -ucodequest codequest < /migrations/08_migration_add_user_profile_fields.sql
+
   auth-service:
     build:
       context: .
@@ -63,6 +77,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
     ports:
       - '4001:4001'
     healthcheck:
@@ -96,6 +112,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
     ports:
       - '4002:4002'
     healthcheck:

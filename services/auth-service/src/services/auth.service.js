@@ -8,12 +8,36 @@ const {
 } = require('@codequest/shared')
 const { hashToken, newRawToken } = require('../utils/tokenHash')
 
+function formatSqlDate(dateValue) {
+  if (!dateValue) {
+    return null
+  }
+
+  if (typeof dateValue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+    return dateValue
+  }
+
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const year = String(date.getUTCFullYear()).padStart(4, '0')
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function mapUserPayload(user) {
   const role = normalizeRole(user.role)
   return {
     id: user.id,
     nombre: user.name,
     email: user.email,
+    username: user.username || null,
+    avatar: user.avatar_url || null,
+    countryCode: user.country_code || null,
+    birthDate: formatSqlDate(user.birth_date),
     role,
     permisos: getPermissionsForRole(role),
     email_verificado: Boolean(user.is_email_verified),
@@ -217,7 +241,7 @@ class AuthService {
     return mapUserPayload(user)
   }
 
-  async updateProfile({ userId, nombre, email }) {
+  async updateProfile({ userId, nombre, email, username, avatar, countryCode, birthDate }) {
     await this.schemaGuardService.assertReady()
 
     const currentUser = await this.userRepository.findById(userId)
@@ -233,6 +257,10 @@ class AuthService {
     const updatedUser = await this.userRepository.updateProfileById(userId, {
       name: nombre,
       email,
+      username,
+      avatarUrl: avatar,
+      countryCode,
+      birthDate,
     })
 
     return mapUserPayload(updatedUser)
