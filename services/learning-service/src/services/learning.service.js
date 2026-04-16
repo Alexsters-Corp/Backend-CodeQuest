@@ -147,18 +147,18 @@ function repairMojibake(value) {
     .replace(/Ã­/g, 'í')
     .replace(/Ã³/g, 'ó')
     .replace(/Ãº/g, 'ú')
-    .replace(/Ã/g, 'Á')
+    .replace(/Ã/g, 'Á')
     .replace(/Ã‰/g, 'É')
-    .replace(/Ã/g, 'Í')
-    .replace(/Ã“/g, 'Ó')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã"/g, 'Ó')
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã±/g, 'ñ')
-    .replace(/Ã‘/g, 'Ñ')
+    .replace(/Ã'/g, 'Ñ')
     .replace(/Â¿/g, '¿')
     .replace(/Â¡/g, '¡')
-    .replace(/â|â/g, '"')
-    .replace(/â/g, "'")
-    .replace(/â|â/g, '-')
+    .replace(/â|â/g, '"')
+    .replace(/â/g, "'")
+    .replace(/â|â/g, '-')
     .replace(/\uFFFD/g, '')
 }
 
@@ -168,7 +168,7 @@ function sanitizeDisplayText(value) {
 
 function hasCorruptedGlyphs(value) {
   const text = String(value || '')
-  return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
+  return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
 }
 
 function buildLessonExerciseBank(lesson) {
@@ -295,6 +295,7 @@ class LearningService {
     favoritesRepository,
     diagnosticRepository,
     classManagementRepository,
+    submissionsRepository,
     schemaGuardService,
     diagnosticQuestionBank,
   }) {
@@ -304,6 +305,7 @@ class LearningService {
     this.favoritesRepository = favoritesRepository
     this.diagnosticRepository = diagnosticRepository
     this.classManagementRepository = classManagementRepository
+    this.submissionsRepository = submissionsRepository
     this.schemaGuardService = schemaGuardService
     this.diagnosticQuestionBank = diagnosticQuestionBank
   }
@@ -750,7 +752,8 @@ class LearningService {
 
     languages.sort((a, b) => a.nombre.localeCompare(b.nombre))
 
-    const totalXp = Number(progress.total_xp || 0)
+    // user_stats.total_xp es la fuente de verdad del XP acumulado
+    const totalXp = Number(streak.total_xp || 0)
 
     return {
       xpTotal: totalXp,
@@ -926,14 +929,10 @@ class LearningService {
       }
     }
 
-    const isLastExercise = selectedExercise.numero === exerciseBank.length
-    if (isLastExercise) {
-      await this.markLessonCompleted({ userId, lessonId })
-    }
-
+    // El XP ya no se otorga por ejercicio individual — se calcula al final en submitSolution
     return {
       isCorrect: true,
-      xpGained: Number(selectedExercise.xp_recompensa || 0),
+      xpGained: 0,
       hint: null,
       correctAnswer: null,
     }
@@ -1202,6 +1201,94 @@ class LearningService {
     await this.schemaGuardService.assertGroup('diagnostic')
 
     return this.classManagementRepository.getGlobalAnalytics()
+  }
+
+  async submitSolution({ userId, lessonId, code, languageId, correctCount, totalExercises, isRetry }) {
+    await this.schemaGuardService.assertGroup('lessons')
+    await this.schemaGuardService.assertGroup('progress')
+    await this.schemaGuardService.assertGroup('submissions')
+
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    if (!lesson) {
+      throw AppError.notFound('Lección no encontrada.')
+    }
+
+    const exerciseBank  = buildLessonExerciseBank(lesson)
+    const totalEx       = Number(totalExercises) || exerciseBank.length
+    const correctEx     = Math.min(Math.max(Number(correctCount) || 0, 0), totalEx)
+    const isRetryAttempt = Boolean(isRetry)
+    const resolvedLanguageId = Number(languageId || lesson.programming_language_id || 1)
+    const xpReward      = Number(lesson.xp_reward || 0)
+
+    // --- Calcular XP según reglas ---
+    let xpEarned = 0
+    if (!isRetryAttempt) {
+      // Primera vez: proporcional a correctas — Math.round para redondeo correcto
+      xpEarned = Math.round(xpReward * correctEx / totalEx)
+    } else {
+      // Retry: >50% correcto → 20 XP, ≤50% (o todo mal) → 10 XP
+      const pct = totalEx > 0 ? correctEx / totalEx : 0
+      xpEarned  = pct > 0.5 ? 20 : 10
+    }
+
+    const allCorrect = correctEx === totalEx
+    const status     = allCorrect ? 'accepted' : 'wrong_answer'
+
+    // --- Guardar submission ---
+    const submissionId = await this.submissionsRepository.createSubmission({
+      userId,
+      lessonId,
+      languageId: resolvedLanguageId,
+      codeSubmitted: String(code || '').trim(),
+      status,
+      testCasesPassed: correctEx,
+      testCasesTotal: totalEx,
+      pointsEarned: xpEarned,
+    })
+
+    // --- Sumar XP al acumulado del usuario ---
+    await this.progressRepository.addXpToStats({ userId, xp: xpEarned })
+
+    // --- Marcar lección como completada si fue la primera vez con todos correctos ---
+    if (!isRetryAttempt && allCorrect) {
+      await this.progressRepository.markLessonCompleted({
+        userId,
+        lessonId,
+        xpReward,
+      })
+    }
+
+    const updatedProgress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
+
+    return {
+      submissionId,
+      status,
+      accepted: allCorrect,
+      testCasesPassed: correctEx,
+      testCasesTotal: totalEx,
+      xpEarned,
+      progressUpdated: true,
+      progress: updatedProgress || null,
+    }
+  }
+
+  async listCompletedLessons(userId) {
+    await this.schemaGuardService.assertGroup('lessons')
+    await this.schemaGuardService.assertGroup('progress')
+
+    const rows = await this.lessonsRepository.listCompleted(userId)
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      description: row.description,
+      learning_path_id: Number(row.learning_path_id),
+      learning_path_name: row.learning_path_name,
+      order_position: Number(row.order_position),
+      xp_reward: Number(row.xp_reward),
+      xp_earned: Number(row.xp_earned),
+      completed_at: row.completed_at,
+    }))
   }
 }
 

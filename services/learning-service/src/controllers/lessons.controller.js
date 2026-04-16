@@ -42,9 +42,32 @@ const submitLessonExercise = asyncHandler(async (req, res) => {
   return res.status(200).json(result)
 })
 
+const listCompletedLessons = asyncHandler(async (req, res) => {
+  const lessons = await learningService.listCompletedLessons(req.user.id)
+  return res.status(200).json(lessons)
+})
+
+const submitSolution = asyncHandler(async (req, res) => {
+  const lessonId = parsePositiveInt(req.params.lessonId, 'lessonId')
+
+  const result = await learningService.submitSolution({
+    userId: req.user.id,
+    lessonId,
+    code: req.body?.code,
+    languageId: req.body?.language_id,
+    correctCount: req.body?.correct_count,
+    totalExercises: req.body?.total_exercises,
+    isRetry: req.body?.is_retry,
+  })
+
+  return res.status(200).json(result)
+})
+
 module.exports = {
   listLessonsByPath,
   getLessonById,
   getLessonSession,
   submitLessonExercise,
+  listCompletedLessons,
+  submitSolution,
 }
