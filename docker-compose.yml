@@ -56,7 +56,7 @@ services:
       DB_CONNECTION_LIMIT: 10
       JWT_ACCESS_SECRET: change_me_access_secret
       JWT_REFRESH_SECRET: change_me_refresh_secret
-      JWT_ACCESS_EXPIRES: 15m
+      JWT_ACCESS_EXPIRES: 1h
       JWT_REFRESH_EXPIRES: 7d
     depends_on:
       mariadb:

@@ -61,6 +61,54 @@ class FavoritesRepository {
 
     return Number(result.affectedRows || 0)
   }
+
+  async listLessonFavorites(userId) {
+    const [rows] = await this.pool.query(
+      `SELECT uf.lesson_id,
+              uf.created_at,
+              l.title,
+              COALESCE(l.description, '') AS description,
+              l.xp_reward,
+              l.order_position,
+              l.learning_path_id
+       FROM user_favorites uf
+       JOIN lessons l ON l.id = uf.lesson_id
+       WHERE uf.user_id = ?
+         AND l.is_published = 1
+       ORDER BY uf.created_at DESC`,
+      [userId]
+    )
+
+    return rows
+  }
+
+  async toggleLessonFavorite({ userId, lessonId }) {
+    const [existing] = await this.pool.query(
+      `SELECT user_id
+       FROM user_favorites
+       WHERE user_id = ? AND lesson_id = ?
+       LIMIT 1`,
+      [userId, lessonId]
+    )
+
+    if (existing.length > 0) {
+      await this.pool.query(
+        `DELETE FROM user_favorites
+         WHERE user_id = ? AND lesson_id = ?`,
+        [userId, lessonId]
+      )
+
+      return false
+    }
+
+    await this.pool.query(
+      `INSERT INTO user_favorites (user_id, lesson_id, created_at)
+       VALUES (?, ?, NOW())`,
+      [userId, lessonId]
+    )
+
+    return true
+  }
 }
 
 module.exports = FavoritesRepository
