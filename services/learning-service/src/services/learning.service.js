@@ -939,6 +939,32 @@ class LearningService {
     }
   }
 
+  async getLessonSolution({ lessonId, userId }) {
+    await this.schemaGuardService.assertGroup('lessons')
+    await this.schemaGuardService.assertGroup('progress')
+
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    if (!lesson) {
+      throw AppError.notFound('Lección no encontrada.')
+    }
+
+    // RN05: solo se puede ver la solución si el usuario completó la lección
+    const progress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
+    if (!progress || progress.status !== 'completed') {
+      throw AppError.forbidden(
+        'Debes completar la lección antes de poder ver la solución.',
+        'LESSON_NOT_COMPLETED'
+      )
+    }
+
+    const solution = await this.solutionsRepository.getSolutionForUser(lessonId)
+    if (!solution) {
+      throw AppError.notFound('Esta lección no tiene una solución registrada.')
+    }
+
+    return solution
+  }
+
   async listLessonFavorites(userId) {
     await this.schemaGuardService.assertGroup('favorites')
     await this.schemaGuardService.assertGroup('base')
