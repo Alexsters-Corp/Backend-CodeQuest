@@ -939,6 +939,22 @@ class LearningService {
     }
   }
 
+  async getLessonSolution({ lessonId, userId }) {
+    await this.schemaGuardService.assertGroup('lessons')
+
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    if (!lesson) {
+      throw AppError.notFound('Lección no encontrada.')
+    }
+
+    const solution = await this.solutionsRepository.getSolutionForUser(lessonId)
+    if (!solution) {
+      throw AppError.notFound('Esta lección no tiene una solución registrada.')
+    }
+
+    return solution
+  }
+
   async listLessonFavorites(userId) {
     await this.schemaGuardService.assertGroup('favorites')
     await this.schemaGuardService.assertGroup('base')
