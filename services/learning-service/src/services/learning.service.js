@@ -171,7 +171,34 @@ function hasCorruptedGlyphs(value) {
   return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
 }
 
-function buildLessonExerciseBank(lesson) {
+/**
+ * Construye el banco de ejercicios de una lección a partir de los datos de BD.
+ * Lanza un error si la lección no tiene solución registrada en lesson_solutions,
+ * ya que los ejercicios son datos de negocio y deben vivir en la base de datos.
+ *
+ * @param {object} lesson     - fila de la BD con los datos de la lección
+ * @param {object} dbSolution - fila de lesson_solutions (requerida)
+ * @throws {AppError} si dbSolution es null o le faltan campos obligatorios
+ */
+function buildLessonExerciseBank(lesson, dbSolution) {
+  if (!dbSolution) {
+    throw AppError.notFound(
+      'Esta lección no tiene ejercicios configurados. Contacta al administrador.',
+      'LESSON_EXERCISES_NOT_FOUND'
+    )
+  }
+
+  const missingFields = ['prompt', 'base_code', 'solution_code', 'explanation'].filter(
+    (field) => !String(dbSolution[field] || '').trim()
+  )
+
+  if (missingFields.length > 0) {
+    throw AppError.serviceUnavailable(
+      `La configuracion del ejercicio de la leccion esta incompleta (faltan: ${missingFields.join(', ')}).`,
+      'LESSON_EXERCISES_INCOMPLETE'
+    )
+  }
+
   const lessonTitle = sanitizeDisplayText(lesson.title || 'la leccion') || 'la leccion'
   const rawDescription = sanitizeDisplayText(lesson.description || '')
   const inferredDescription =
@@ -179,77 +206,23 @@ function buildLessonExerciseBank(lesson) {
   const lessonDescription =
     rawDescription && !hasCorruptedGlyphs(rawDescription) ? rawDescription : inferredDescription
 
-  const languageId = Number(lesson.programming_language_id || 0)
   const totalXp = Math.max(0, Number(lesson.xp_reward || 0))
   const baseExerciseXp = Math.floor(totalXp / 3)
   const finalExerciseXp = totalXp - baseExerciseXp * 2
-
-  const codeExerciseByLanguage = {
-    1: {
-      prompt: 'Completa el identificador faltante para imprimir la lista transformada en Python.',
-      code: 'numeros = [1, 2, 3]\ndobles = [n * 2 for n in numeros]\nprint(_____)',
-      expected: 'dobles',
-      hint: 'Debes imprimir la variable que almacena el resultado transformado.',
-    },
-    2: {
-      prompt: 'Completa el identificador faltante para mostrar el resultado en JavaScript.',
-      code: 'const numeros = [1, 2, 3]\nconst dobles = numeros.map((n) => n * 2)\nconsole.log(_____)',
-      expected: 'dobles',
-      hint: 'Usa el nombre de la constante que contiene el arreglo transformado.',
-    },
-    3: {
-      prompt: 'Completa el identificador faltante para imprimir el mensaje en Java.',
-      code: 'String mensaje = "Hola CodeQuest";\nSystem.out.println(_____);',
-      expected: 'mensaje',
-      hint: 'Imprime la variable que contiene el texto.',
-    },
-    4: {
-      prompt: 'Completa el identificador faltante para mostrar el resultado en C++.',
-      code: 'int total = 2 + 3;\nstd::cout << _____ << std::endl;',
-      expected: 'total',
-      hint: 'Usa el nombre de la variable calculada previamente.',
-    },
-    5: {
-      prompt: 'Completa el identificador faltante para imprimir el resultado en C#.',
-      code: 'int total = 2 + 3;\nConsole.WriteLine(_____);',
-      expected: 'total',
-      hint: 'Imprime la variable que guarda la suma.',
-    },
-    6: {
-      prompt: 'Completa el identificador faltante para imprimir el resultado en Go.',
-      code: 'total := 2 + 3\nfmt.Println(_____)',
-      expected: 'total',
-      hint: 'Usa la variable declarada con :=.',
-    },
-    7: {
-      prompt: 'Completa el identificador faltante para imprimir el resultado en Ruby.',
-      code: 'total = 2 + 3\nputs(_____)',
-      expected: 'total',
-      hint: 'Imprime la variable que contiene la suma.',
-    },
-    default: {
-      prompt: 'Completa el identificador faltante para imprimir el valor calculado.',
-      code: 'resultado = 2 + 3\nprint(_____)',
-      expected: 'resultado',
-      hint: 'Usa la variable definida en la línea anterior.',
-    },
-  }
-
-  const selectedCodeExercise = codeExerciseByLanguage[languageId] || codeExerciseByLanguage.default
 
   return [
     {
       id: 'code-core',
       tipo: 'completar_codigo',
-      enunciado: selectedCodeExercise.prompt,
-      codigo_base: selectedCodeExercise.code,
+      enunciado: dbSolution.prompt.trim(),
+      codigo_base: dbSolution.base_code.trim(),
       opciones: [],
-      pista: selectedCodeExercise.hint,
+      pista: dbSolution.explanation.trim(),
       numero: 1,
       xp_recompensa: baseExerciseXp,
       validator: {
         type: 'exact_text',
-        expected: selectedCodeExercise.expected,
+        expected: dbSolution.solution_code.trim(),
       },
     },
     {
@@ -296,6 +269,7 @@ class LearningService {
     diagnosticRepository,
     classManagementRepository,
     submissionsRepository,
+    solutionsRepository,
     schemaGuardService,
     diagnosticQuestionBank,
   }) {
@@ -306,6 +280,7 @@ class LearningService {
     this.diagnosticRepository = diagnosticRepository
     this.classManagementRepository = classManagementRepository
     this.submissionsRepository = submissionsRepository
+    this.solutionsRepository = solutionsRepository
     this.schemaGuardService = schemaGuardService
     this.diagnosticQuestionBank = diagnosticQuestionBank
   }
@@ -863,7 +838,8 @@ class LearningService {
       throw AppError.notFound('Lección no encontrada.')
     }
 
-    const exerciseBank = buildLessonExerciseBank(lesson)
+    const dbSolution = await this.solutionsRepository.findByLesson(lessonId)
+    const exerciseBank = buildLessonExerciseBank(lesson, dbSolution)
     const cleanedTheory = stripLeadingHeading(lesson.content || '')
 
     return {
@@ -900,7 +876,8 @@ class LearningService {
       throw AppError.notFound('Lección no encontrada.')
     }
 
-    const exerciseBank = buildLessonExerciseBank(lesson)
+    const dbSolution = await this.solutionsRepository.findByLesson(lessonId)
+    const exerciseBank = buildLessonExerciseBank(lesson, dbSolution)
     const selectedExercise = exerciseBank.find((exercise) => exercise.id === exerciseId)
 
     if (!selectedExercise) {
