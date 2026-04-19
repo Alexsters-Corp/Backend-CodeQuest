@@ -7,6 +7,7 @@ const FavoritesRepository = require('../repositories/favorites.repository')
 const DiagnosticRepository = require('../repositories/diagnostic.repository')
 const ClassManagementRepository = require('../repositories/class-management.repository')
 const SubmissionsRepository = require('../repositories/submissions.repository')
+const SolutionsRepository = require('../repositories/solutions.repository')
 const SchemaGuardService = require('./schema-guard.service')
 const LearningService = require('./learning.service')
 const diagnosticQuestionBank = require('./diagnostic-question-bank.service')
@@ -28,6 +29,7 @@ const favoritesRepository = new FavoritesRepository({ pool })
 const diagnosticRepository = new DiagnosticRepository({ pool })
 const classManagementRepository = new ClassManagementRepository({ pool })
 const submissionsRepository = new SubmissionsRepository({ pool })
+const solutionsRepository = new SolutionsRepository({ pool })
 
 const schemaGuardService = new SchemaGuardService({ schemaRepository })
 
@@ -39,6 +41,7 @@ const learningService = new LearningService({
   diagnosticRepository,
   classManagementRepository,
   submissionsRepository,
+  solutionsRepository,
   schemaGuardService,
   diagnosticQuestionBank,
 })
