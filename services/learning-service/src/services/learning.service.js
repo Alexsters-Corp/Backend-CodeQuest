@@ -1214,7 +1214,8 @@ class LearningService {
       throw AppError.notFound('Lección no encontrada.')
     }
 
-    const exerciseBank  = buildLessonExerciseBank(lesson)
+    const dbSolution    = await this.solutionsRepository.findByLesson(lessonId)
+    const exerciseBank  = buildLessonExerciseBank(lesson, dbSolution)
     const totalEx       = Number(totalExercises) || exerciseBank.length
     const correctEx     = Math.min(Math.max(Number(correctCount) || 0, 0), totalEx)
     const isRetryAttempt = Boolean(isRetry)
