@@ -52,7 +52,10 @@ class TokenBlacklistRepository {
 
   async #resolveSchema() {
     if (!this.schemaPromise) {
-      this.schemaPromise = this.#detectSchema()
+      this.schemaPromise = this.#detectSchema().catch((err) => {
+        this.schemaPromise = null
+        throw err
+      })
     }
 
     return this.schemaPromise

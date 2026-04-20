@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const { randomUUID } = require('crypto')
 
 function createJwtToolkit({
   accessSecret,
@@ -11,11 +12,11 @@ function createJwtToolkit({
   }
 
   function signAccessToken(payload) {
-    return jwt.sign(payload, accessSecret, { expiresIn: accessExpiresIn })
+    return jwt.sign({ ...payload, jti: randomUUID() }, accessSecret, { expiresIn: accessExpiresIn })
   }
 
   function signRefreshToken(payload) {
-    return jwt.sign(payload, refreshSecret, { expiresIn: refreshExpiresIn })
+    return jwt.sign({ ...payload, jti: randomUUID() }, refreshSecret, { expiresIn: refreshExpiresIn })
   }
 
   function verifyAccessToken(token) {

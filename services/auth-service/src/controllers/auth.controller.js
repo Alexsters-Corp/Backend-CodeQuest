@@ -41,7 +41,7 @@ const refresh = asyncHandler(async (req, res) => {
 })
 
 const logout = asyncHandler(async (req, res) => {
-  await authService.logout({ req })
+  await authService.logout({ req, refreshToken: req.body?.refreshToken || null })
   return res.status(200).json({ message: 'Sesion cerrada correctamente.' })
 })
 

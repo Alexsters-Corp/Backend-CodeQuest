@@ -4,6 +4,8 @@ const rateLimit = require('express-rate-limit')
 const { createProxyMiddleware } = require('http-proxy-middleware')
 const {
   createJwtToolkit,
+  createDbPool,
+  hashToken,
   asyncHandler,
   errorHandler,
   notFoundHandler,
@@ -15,6 +17,86 @@ const jwtToolkit = createJwtToolkit({
   accessSecret: env.jwt.accessSecret,
   refreshSecret: env.jwt.refreshSecret,
 })
+
+const dbPool = createDbPool({
+  host: env.db.host,
+  port: env.db.port,
+  user: env.db.user,
+  password: env.db.password,
+  database: env.db.database,
+})
+
+const TOKENS_VALID_AFTER_SCHEMA_CACHE_MS = 60 * 1000
+let usersTokensValidAfterColumn = null
+let usersTokensValidAfterColumnCheckedAt = 0
+let usersTokensValidAfterColumnPromise = null
+
+async function resolveUsersTokensValidAfterColumn() {
+  const now = Date.now()
+  if (
+    usersTokensValidAfterColumn !== null
+    && now - usersTokensValidAfterColumnCheckedAt < TOKENS_VALID_AFTER_SCHEMA_CACHE_MS
+  ) {
+    return usersTokensValidAfterColumn
+  }
+
+  if (usersTokensValidAfterColumnPromise) {
+    return usersTokensValidAfterColumnPromise
+  }
+
+  usersTokensValidAfterColumnPromise = dbPool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = 'users'
+       AND column_name = 'tokens_valid_after'`
+  ).then(([rows]) => {
+    usersTokensValidAfterColumn = rows.length > 0 ? 'tokens_valid_after' : ''
+    usersTokensValidAfterColumnCheckedAt = Date.now()
+    return usersTokensValidAfterColumn
+  }).catch((err) => {
+    usersTokensValidAfterColumnCheckedAt = 0
+    usersTokensValidAfterColumn = null
+    throw err
+  }).finally(() => {
+    usersTokensValidAfterColumnPromise = null
+  })
+
+  return usersTokensValidAfterColumnPromise
+}
+
+async function isTokenRevoked(token, decoded) {
+  const tokenHash = hashToken(token)
+  const [rows] = await dbPool.query(
+    `SELECT id FROM token_blacklist WHERE token_hash = ? AND expires_at > NOW() LIMIT 1`,
+    [tokenHash]
+  )
+
+  if (rows.length > 0) {
+    return true
+  }
+
+  const tokensValidAfterColumn = await resolveUsersTokensValidAfterColumn()
+  if (!tokensValidAfterColumn) {
+    return false
+  }
+
+  const [userRows] = await dbPool.query(
+    `SELECT ${tokensValidAfterColumn} AS tokens_valid_after
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [decoded.id]
+  )
+
+  const user = userRows[0]
+  if (!user?.tokens_valid_after) {
+    return false
+  }
+
+  const validAfterTs = Math.floor(new Date(user.tokens_valid_after).getTime() / 1000)
+  return Number(decoded.iat) < validAfterTs
+}
 
 const app = express()
 
@@ -103,6 +185,8 @@ const proxyLearningService = createProxyMiddleware({
 
 const gatewayAuth = createGatewayAuth({
   verifyAccessToken: jwtToolkit.verifyAccessToken,
+  isTokenRevoked,
+  authValidationFailOpen: env.authValidationFailOpen,
 })
 
 app.use('/api/auth', authLimiter, proxyAuthService)
@@ -115,6 +199,35 @@ app.use('/api/admin', learningLimiter, gatewayAuth, proxyLearningService)
 app.use(notFoundHandler)
 app.use(errorHandler)
 
-app.listen(env.port, () => {
+const server = app.listen(env.port, () => {
   console.log(`[${env.serviceName}] running on http://localhost:${env.port}`)
 })
+
+let shuttingDown = false
+async function gracefulShutdown(signal) {
+  if (shuttingDown) {
+    return
+  }
+
+  shuttingDown = true
+  console.log(`[${env.serviceName}] ${signal} received, closing server...`)
+
+  server.close(async () => {
+    try {
+      await dbPool.end()
+      console.log(`[${env.serviceName}] DB connections closed.`)
+      process.exit(0)
+    } catch (error) {
+      console.error(`[${env.serviceName}] Error closing DB connections:`, error)
+      process.exit(1)
+    }
+  })
+
+  setTimeout(() => {
+    console.error(`[${env.serviceName}] forced shutdown due timeout.`)
+    process.exit(1)
+  }, 10000).unref()
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))

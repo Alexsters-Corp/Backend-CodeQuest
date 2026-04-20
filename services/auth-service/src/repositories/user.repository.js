@@ -3,6 +3,7 @@ class UserRepository {
     this.pool = pool
     this.verifiedColumnPromise = null
     this.profileColumnsPromise = null
+    this.tokensValidAfterExistsPromise = null
   }
 
   async findByEmail(email) {
@@ -29,6 +30,7 @@ class UserRepository {
   async findById(id) {
     const verifiedColumn = await this.#resolveVerifiedColumn()
     const profileSelect = await this.#buildProfileSelectColumns()
+    const tvaColumn = await this.#resolveTokensValidAfterColumn()
     const [rows] = await this.pool.query(
       `SELECT id,
               name,
@@ -36,6 +38,7 @@ class UserRepository {
               role,
               is_active,
               ${profileSelect},
+              ${tvaColumn},
               ${verifiedColumn} AS is_email_verified
        FROM users
        WHERE id = ?
@@ -84,8 +87,9 @@ class UserRepository {
     )
   }
 
-  async updateProfileById(userId, { name, email, username, avatarUrl, countryCode, birthDate }) {
+  async updateProfileById(userId, { name, email, username, avatarUrl, countryCode, birthDate, emailChanged }) {
     const profileColumns = await this.#resolveProfileColumns()
+    const verifiedColumn = await this.#resolveVerifiedColumn()
     const updates = ['name = ?', 'email = ?']
     const params = [name, email]
 
@@ -107,6 +111,10 @@ class UserRepository {
     if (profileColumns.birth_date) {
       updates.push('birth_date = ?')
       params.push(birthDate)
+    }
+
+    if (emailChanged) {
+      updates.push(`${verifiedColumn} = 0`)
     }
 
     await this.pool.query(
@@ -219,7 +227,10 @@ class UserRepository {
 
   async #resolveVerifiedColumn() {
     if (!this.verifiedColumnPromise) {
-      this.verifiedColumnPromise = this.#detectVerifiedColumn()
+      this.verifiedColumnPromise = this.#detectVerifiedColumn().catch((err) => {
+        this.verifiedColumnPromise = null
+        throw err
+      })
     }
 
     return this.verifiedColumnPromise
@@ -263,7 +274,10 @@ class UserRepository {
 
   async #resolveProfileColumns() {
     if (!this.profileColumnsPromise) {
-      this.profileColumnsPromise = this.#detectProfileColumns()
+      this.profileColumnsPromise = this.#detectProfileColumns().catch((err) => {
+        this.profileColumnsPromise = null
+        throw err
+      })
     }
 
     return this.profileColumnsPromise
@@ -285,6 +299,42 @@ class UserRepository {
       avatar_url: columns.has('avatar_url'),
       country_code: columns.has('country_code'),
       birth_date: columns.has('birth_date'),
+    }
+  }
+
+  async #resolveTokensValidAfterColumn() {
+    if (!this.tokensValidAfterExistsPromise) {
+      this.tokensValidAfterExistsPromise = this.#detectTokensValidAfterColumn().catch((err) => {
+        this.tokensValidAfterExistsPromise = null
+        throw err
+      })
+    }
+
+    return this.tokensValidAfterExistsPromise
+  }
+
+  async #detectTokensValidAfterColumn() {
+    const [rows] = await this.pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'users'
+         AND column_name = 'tokens_valid_after'`
+    )
+
+    return rows.length > 0 ? 'tokens_valid_after' : 'NULL AS tokens_valid_after'
+  }
+
+  async setTokensValidAfter(userId, date) {
+    try {
+      await this.pool.query(
+        `UPDATE users
+         SET tokens_valid_after = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [date, userId]
+      )
+    } catch (_error) {
+      // Column may not exist yet if migration hasn't run — non-fatal
     }
   }
 }

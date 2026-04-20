@@ -126,6 +126,11 @@ class AuthService {
       throw AppError.unauthorized('Refresh token invalido o expirado.')
     }
 
+    const isRevoked = await this.tokenBlacklistRepository.isTokenRevoked(refreshToken)
+    if (isRevoked) {
+      throw AppError.unauthorized('Refresh token revocado.')
+    }
+
     const user = await this.userRepository.findById(decoded.id)
     if (!user) {
       throw AppError.unauthorized('Usuario no encontrado.')
@@ -135,6 +140,13 @@ class AuthService {
       throw AppError.forbidden('Tu cuenta se encuentra desactivada.', 'ACCOUNT_DISABLED')
     }
 
+    if (user.tokens_valid_after) {
+      const validAfterTs = Math.floor(new Date(user.tokens_valid_after).getTime() / 1000)
+      if (Number(decoded.iat) < validAfterTs) {
+        throw AppError.unauthorized('Sesion invalidada. Por favor inicia sesion nuevamente.')
+      }
+    }
+
     const role = normalizeRole(user.role)
 
     return {
@@ -142,7 +154,7 @@ class AuthService {
     }
   }
 
-  async logout({ req }) {
+  async logout({ req, refreshToken }) {
     await this.schemaGuardService.assertReady()
 
     const token = extractBearerToken(req)
@@ -155,6 +167,10 @@ class AuthService {
       decoded = this.jwtToolkit.verifyAccessToken(token)
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
+        // Even if access token expired, still revoke refresh token if provided
+        if (refreshToken) {
+          await this.#revokeRefreshToken(refreshToken)
+        }
         return
       }
 
@@ -168,6 +184,29 @@ class AuthService {
       userId: decoded.id,
       expiresAt,
     })
+
+    if (refreshToken) {
+      await this.#revokeRefreshToken(refreshToken)
+    }
+  }
+
+  async #revokeRefreshToken(refreshToken) {
+    let decodedRefresh
+    try {
+      decodedRefresh = this.jwtToolkit.verifyRefreshToken(refreshToken)
+    } catch (_error) {
+      return // Already expired or invalid — nothing to revoke
+    }
+
+    const expiresAt = decodedRefresh.exp
+      ? new Date(decodedRefresh.exp * 1000)
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+
+    await this.tokenBlacklistRepository.revokeToken({
+      token: refreshToken,
+      userId: decodedRefresh.id,
+      expiresAt,
+    })
   }
 
   async forgotPassword({ email }) {
@@ -177,6 +216,11 @@ class AuthService {
     if (!user) {
       return
     }
+
+    await this.authTokenRepository.invalidatePreviousTokens({
+      userId: user.id,
+      tokenType: 'reset_password',
+    })
 
     const rawToken = newRawToken()
     const tokenHash = hashToken(rawToken)
@@ -211,6 +255,7 @@ class AuthService {
 
     await this.userRepository.updatePasswordById(token.user_id, passwordHash)
     await this.authTokenRepository.markTokenUsed(token.id)
+    await this.userRepository.setTokensValidAfter(token.user_id, new Date())
   }
 
   async verifyEmail({ rawToken }) {
@@ -254,6 +299,8 @@ class AuthService {
       throw AppError.conflict('El email ya esta registrado.', 'EMAIL_ALREADY_REGISTERED')
     }
 
+    const emailChanged = email && email.toLowerCase() !== currentUser.email.toLowerCase()
+
     const updatedUser = await this.userRepository.updateProfileById(userId, {
       name: nombre,
       email,
@@ -261,6 +308,7 @@ class AuthService {
       avatarUrl: avatar,
       countryCode,
       birthDate,
+      emailChanged,
     })
 
     return mapUserPayload(updatedUser)

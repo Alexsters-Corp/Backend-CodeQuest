@@ -34,6 +34,18 @@ class AuthTokenRepository {
       [tokenId]
     )
   }
+
+  async invalidatePreviousTokens({ userId, tokenType }) {
+    await this.pool.query(
+      `UPDATE auth_tokens
+       SET used_at = NOW()
+       WHERE user_id = ?
+         AND token_type = ?
+         AND used_at IS NULL
+         AND expires_at > NOW()`,
+      [userId, tokenType]
+    )
+  }
 }
 
 module.exports = AuthTokenRepository

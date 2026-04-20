@@ -5,6 +5,7 @@ const errorHandler = require('./http/errorHandler')
 const notFoundHandler = require('./http/notFoundHandler')
 const { requireFields, parsePositiveInt, parseString } = require('./validation/request')
 const { createJwtToolkit } = require('./security/jwt')
+const { hashToken } = require('./security/tokenHash')
 const {
   ROLE_USER,
   ROLE_INSTRUCTOR,
@@ -29,6 +30,7 @@ module.exports = {
   parsePositiveInt,
   parseString,
   createJwtToolkit,
+  hashToken,
   ROLE_USER,
   ROLE_INSTRUCTOR,
   ROLE_ADMIN,
