@@ -35,7 +35,7 @@ function createAuthGuard({ verifyAccessToken, isTokenRevoked } = {}) {
     }
 
     if (typeof isTokenRevoked === 'function') {
-      const revoked = await isTokenRevoked(token)
+      const revoked = await isTokenRevoked(token, decoded, req)
       if (revoked) {
         return next(AppError.unauthorized('Token revocado.', 'TOKEN_REVOKED'))
       }

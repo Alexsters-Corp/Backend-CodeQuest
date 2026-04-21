@@ -35,9 +35,21 @@ const authService = new AuthService({
 
 const authGuard = createAuthGuard({
   verifyAccessToken: jwtToolkit.verifyAccessToken,
-  isTokenRevoked: async (token) => {
+  isTokenRevoked: async (token, decoded) => {
     await schemaGuardService.assertReady()
-    return tokenBlacklistRepository.isTokenRevoked(token)
+
+    const revoked = await tokenBlacklistRepository.isTokenRevoked(token)
+    if (revoked) {
+      return true
+    }
+
+    const user = await userRepository.findById(decoded.id)
+    if (!user || !user.tokens_valid_after) {
+      return false
+    }
+
+    const validAfterTs = Math.floor(new Date(user.tokens_valid_after).getTime() / 1000)
+    return Number(decoded.iat) < validAfterTs
   },
 })
 

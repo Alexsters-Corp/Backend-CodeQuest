@@ -1,8 +1,5 @@
 const crypto = require('crypto')
-
-function hashToken(token) {
-  return crypto.createHash('sha256').update(String(token)).digest('hex')
-}
+const { hashToken } = require('@codequest/shared')
 
 function newRawToken() {
   return crypto.randomBytes(32).toString('hex')

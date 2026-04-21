@@ -138,6 +138,12 @@ services:
       LEARNING_SERVICE_URL: http://learning-service:4002
       JWT_ACCESS_SECRET: change_me_access_secret
       JWT_REFRESH_SECRET: change_me_refresh_secret
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_USER: codequest
+      DB_PASSWORD: codequest
+      DB_NAME: codequest
+      AUTH_VALIDATION_FAIL_OPEN: 'false'
     depends_on:
       auth-service:
         condition: service_healthy
