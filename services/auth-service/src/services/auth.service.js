@@ -183,6 +183,7 @@ class AuthService {
       token,
       userId: decoded.id,
       expiresAt,
+      tokenJti: typeof decoded.jti === 'string' ? decoded.jti : null,
     })
 
     if (refreshToken) {
@@ -206,6 +207,7 @@ class AuthService {
       token: refreshToken,
       userId: decodedRefresh.id,
       expiresAt,
+      tokenJti: typeof decodedRefresh.jti === 'string' ? decodedRefresh.jti : null,
     })
   }
 
