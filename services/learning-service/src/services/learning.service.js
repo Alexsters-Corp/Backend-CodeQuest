@@ -171,34 +171,99 @@ function hasCorruptedGlyphs(value) {
   return /�|Ã|Â|â|\?\?|[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]\?[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(text)
 }
 
+function inferBaseCodeByLanguage(languageId) {
+  const normalizedLanguageId = Number(languageId || 0)
+
+  if (normalizedLanguageId === 1) {
+    return 'resultado = 2 + 2\nprint(_____)'
+  }
+
+  if (normalizedLanguageId === 2) {
+    return 'const resultado = 2 + 2\nconsole.log(_____)'
+  }
+
+  if (normalizedLanguageId === 3) {
+    return 'int resultado = 2 + 2;\nSystem.out.println(_____);'
+  }
+
+  if (normalizedLanguageId === 4) {
+    return 'int resultado = 2 + 2;\nstd::cout << _____ << std::endl;'
+  }
+
+  if (normalizedLanguageId === 5) {
+    return 'int resultado = 2 + 2;\nConsole.WriteLine(_____);'
+  }
+
+  return 'resultado = 2 + 2\nprint(_____)'
+}
+
+function buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp }) {
+  const baseExerciseXp = Math.floor(totalXp / 3)
+  const finalExerciseXp = totalXp - baseExerciseXp * 2
+
+  return [
+    {
+      id: 'concept-core',
+      tipo: 'opcion_multiple',
+      enunciado: `¿Que objetivo principal resume mejor la leccion "${lessonTitle}"?`,
+      opciones: [
+        lessonDescription,
+        'Memorizar sintaxis sin practicar.',
+        'Evitar revisar errores para avanzar mas rapido.',
+        'Saltar fundamentos y empezar por temas avanzados.',
+      ],
+      pista: 'Busca la opcion que describe aprendizaje practico y progresivo.',
+      numero: 1,
+      xp_recompensa: baseExerciseXp,
+      validator: {
+        type: 'option_text',
+        expected: lessonDescription,
+      },
+    },
+    {
+      id: 'practice-habit',
+      tipo: 'verdadero_falso',
+      enunciado:
+        'Verdadero o falso: practicar ejemplos cortos y validar resultados mejora la comprension.',
+      opciones: ['Verdadero', 'Falso'],
+      pista: 'La practica deliberada ayuda a consolidar conocimiento.',
+      numero: 2,
+      xp_recompensa: baseExerciseXp,
+      validator: {
+        type: 'option_text',
+        expected: 'Verdadero',
+      },
+    },
+    {
+      id: 'study-strategy',
+      tipo: 'opcion_multiple',
+      enunciado: `Para avanzar en "${lessonTitle}", ¿cual estrategia es la mas recomendable?`,
+      opciones: [
+        'Practicar, revisar errores y volver a intentar.',
+        'Resolver todo sin leer teoria ni pistas.',
+        'Copiar respuestas sin entender el por que.',
+        'Ignorar retroalimentacion cuando una respuesta falla.',
+      ],
+      pista: 'El aprendizaje efectivo combina teoria, practica y retroalimentacion.',
+      numero: 3,
+      xp_recompensa: finalExerciseXp,
+      validator: {
+        type: 'option_text',
+        expected: 'Practicar, revisar errores y volver a intentar.',
+      },
+    },
+  ]
+}
+
 /**
  * Construye el banco de ejercicios de una lección a partir de los datos de BD.
- * Lanza un error si la lección no tiene solución registrada en lesson_solutions,
- * ya que los ejercicios son datos de negocio y deben vivir en la base de datos.
+ * Si faltan datos de lesson_solutions, retorna ejercicios de respaldo para no
+ * bloquear la experiencia del estudiante.
  *
  * @param {object} lesson     - fila de la BD con los datos de la lección
- * @param {object} dbSolution - fila de lesson_solutions (requerida)
- * @throws {AppError} si dbSolution es null o le faltan campos obligatorios
+ * @param {object} dbSolution - fila de lesson_solutions (opcional)
  */
 function buildLessonExerciseBank(lesson, dbSolution) {
-  if (!dbSolution) {
-    throw AppError.notFound(
-      'Esta lección no tiene ejercicios configurados. Contacta al administrador.',
-      'LESSON_EXERCISES_NOT_FOUND'
-    )
-  }
-
-  const missingFields = ['prompt', 'base_code', 'solution_code', 'explanation'].filter(
-    (field) => !String(dbSolution[field] || '').trim()
-  )
-
-  if (missingFields.length > 0) {
-    throw AppError.serviceUnavailable(
-      `La configuracion del ejercicio de la leccion esta incompleta (faltan: ${missingFields.join(', ')}).`,
-      'LESSON_EXERCISES_INCOMPLETE'
-    )
-  }
-
   const lessonTitle = sanitizeDisplayText(lesson.title || 'la leccion') || 'la leccion'
   const rawDescription = sanitizeDisplayText(lesson.description || '')
   const inferredDescription =
@@ -210,19 +275,32 @@ function buildLessonExerciseBank(lesson, dbSolution) {
   const baseExerciseXp = Math.floor(totalXp / 3)
   const finalExerciseXp = totalXp - baseExerciseXp * 2
 
+  const solutionCode = String(dbSolution?.solution_code || '').trim()
+  const explanation = String(dbSolution?.explanation || '').trim()
+  const prompt = String(dbSolution?.prompt || '').trim()
+  const baseCode = String(dbSolution?.base_code || '').trim()
+
+  if (!solutionCode || !explanation) {
+    return buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp })
+  }
+
+  const safePrompt =
+    prompt || `Completa el identificador faltante para finalizar el ejemplo de "${lessonTitle}".`
+  const safeBaseCode = baseCode || inferBaseCodeByLanguage(lesson.programming_language_id)
+
   return [
     {
       id: 'code-core',
       tipo: 'completar_codigo',
-      enunciado: dbSolution.prompt.trim(),
-      codigo_base: dbSolution.base_code.trim(),
+      enunciado: safePrompt,
+      codigo_base: safeBaseCode,
       opciones: [],
-      pista: dbSolution.explanation.trim(),
+      pista: explanation,
       numero: 1,
       xp_recompensa: baseExerciseXp,
       validator: {
         type: 'exact_text',
-        expected: dbSolution.solution_code.trim(),
+        expected: solutionCode,
       },
     },
     {

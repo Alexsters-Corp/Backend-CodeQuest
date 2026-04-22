@@ -41,6 +41,13 @@ const env = {
     lessons: toBoolean(process.env.FEATURE_LEARNING_LESSONS, true),
     progress: toBoolean(process.env.FEATURE_LEARNING_PROGRESS, true),
     favorites: toBoolean(process.env.FEATURE_LEARNING_FAVORITES, true),
+    codeExecution: toBoolean(process.env.FEATURE_CODE_EXECUTION_ENABLED, true),
+  },
+  execution: {
+    judge0ApiUrl: process.env.JUDGE0_API_URL || 'https://ce.judge0.com',
+    judge0ApiKey: process.env.JUDGE0_API_KEY || '',
+    timeoutMs: toInteger(process.env.CODE_EXECUTION_TIMEOUT_MS, 5000),
+    maxCodeLength: toInteger(process.env.CODE_EXECUTION_MAX_CODE_LENGTH, 16000),
   },
 }
 

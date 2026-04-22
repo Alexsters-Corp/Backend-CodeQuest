@@ -16,6 +16,7 @@ const {
 } = require('../controllers/lessons.controller')
 const { getOverview, completeLesson } = require('../controllers/progress.controller')
 const { getLessonSolution } = require('../controllers/solutions.controller')
+const { executeCode } = require('../controllers/execution.controller')
 const { listPathFavorites, togglePathFavorite, listLessonFavorites, toggleLessonFavorite } = require('../controllers/favorites.controller')
 
 const router = express.Router()
@@ -27,6 +28,7 @@ router.get('/languages/:languageId/modules', featureFlagGuard('paths'), requireG
 
 router.post('/diagnostic/start', featureFlagGuard('progress'), requireGatewayUser, startDiagnostic)
 router.post('/diagnostic/attempts/:attemptId/finish', featureFlagGuard('progress'), requireGatewayUser, finishDiagnostic)
+router.post('/execute', featureFlagGuard('codeExecution'), requireGatewayUser, executeCode)
 
 router.get('/dashboard', featureFlagGuard('progress'), requireGatewayUser, getDashboardOverview)
 
