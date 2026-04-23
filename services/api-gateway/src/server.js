@@ -191,6 +191,8 @@ const gatewayAuth = createGatewayAuth({
 
 app.use('/api/auth', authLimiter, proxyAuthService)
 app.use('/api/users', authLimiter, proxyAuthService)
+app.use('/api/social', authLimiter, proxyAuthService)
+app.use('/api/ranking', authLimiter, proxyAuthService)
 app.use('/api/admin/users', authLimiter, gatewayAuth, proxyAuthService)
 app.use('/api/learning', learningLimiter, gatewayAuth, proxyLearningService)
 app.use('/api/instructor', learningLimiter, gatewayAuth, proxyLearningService)

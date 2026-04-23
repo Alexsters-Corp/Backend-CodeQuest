@@ -51,7 +51,9 @@ services:
       - |
         mysql -hmariadb -ucodequest codequest < /migrations/07_seed_lesson_solutions.sql &&
         mysql -hmariadb -ucodequest codequest < /migrations/08_migration_add_user_profile_fields.sql &&
-        mysql -hmariadb -ucodequest codequest < /migrations/09_migration_lesson_solutions_exercise_fields.sql
+        mysql -hmariadb -ucodequest codequest < /migrations/09_migration_lesson_solutions_exercise_fields.sql &&
+        mysql -hmariadb -ucodequest codequest < /migrations/10_migration_security_fixes.sql &&
+        mysql -hmariadb -ucodequest codequest < /migrations/11_migration_add_user_follows.sql
 
   auth-service:
     build:

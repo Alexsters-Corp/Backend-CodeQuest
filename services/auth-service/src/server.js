@@ -6,6 +6,8 @@ const { pool } = require('./services/container')
 const authRoutes = require('./routes/auth.routes')
 const userRoutes = require('./routes/user.routes')
 const adminRoutes = require('./routes/admin.routes')
+const socialRoutes = require('./routes/social.routes')
+const rankingRoutes = require('./routes/ranking.routes')
 
 const app = express()
 
@@ -29,6 +31,8 @@ app.get('/internal/health', asyncHandler(async (_req, res) => {
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
+app.use('/api/social', socialRoutes)
+app.use('/api/ranking', rankingRoutes)
 app.use('/api/admin', adminRoutes)
 
 app.use(notFoundHandler)

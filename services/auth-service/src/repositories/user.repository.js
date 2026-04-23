@@ -49,6 +49,33 @@ class UserRepository {
     return rows[0] || null
   }
 
+  async findByUsername(username) {
+    const normalizedUsername = String(username || '').trim()
+    if (!normalizedUsername) {
+      return null
+    }
+
+    const verifiedColumn = await this.#resolveVerifiedColumn()
+    const profileSelect = await this.#buildProfileSelectColumns()
+    const tvaColumn = await this.#resolveTokensValidAfterColumn()
+    const [rows] = await this.pool.query(
+      `SELECT id,
+              name,
+              email,
+              role,
+              is_active,
+              ${profileSelect},
+              ${tvaColumn},
+              ${verifiedColumn} AS is_email_verified
+       FROM users
+       WHERE LOWER(username) = LOWER(?)
+       LIMIT 1`,
+      [normalizedUsername]
+    )
+
+    return rows[0] || null
+  }
+
   async createUser({ name, email, passwordHash }) {
     const [result] = await this.pool.query(
       `INSERT INTO users (name, email, password_hash, created_at, updated_at)
@@ -223,6 +250,252 @@ class UserRepository {
         newValue ? JSON.stringify(newValue) : null,
       ]
     )
+  }
+
+  async searchUsersByUsername({ query, excludeUserId = null, limit = 8 }) {
+    const normalizedQuery = String(query || '').trim()
+    if (!normalizedQuery) {
+      return []
+    }
+
+    const safeLimit = Math.max(1, Math.min(20, Number(limit) || 8))
+    const [rows] = await this.pool.query(
+      `SELECT u.id,
+              u.name,
+              u.username,
+              u.avatar_url,
+              u.country_code,
+              COALESCE(us.total_xp, 0) AS total_xp,
+              COALESCE(us.current_level, 1) AS current_level,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows uf
+                  WHERE uf.follower_id = ?
+                    AND uf.following_id = u.id
+                ) THEN 1
+                ELSE 0
+              END AS is_following
+       FROM users u
+       LEFT JOIN user_stats us ON us.user_id = u.id
+       WHERE u.username IS NOT NULL
+         AND u.username <> ''
+         AND u.is_active = 1
+         AND (? IS NULL OR u.id <> ?)
+         AND LOWER(u.username) LIKE LOWER(?)
+       ORDER BY CASE WHEN LOWER(u.username) = LOWER(?) THEN 0 ELSE 1 END,
+                us.total_xp DESC,
+                u.username ASC
+       LIMIT ?`,
+      [excludeUserId, excludeUserId, excludeUserId, excludeUserId, `%${normalizedQuery}%`, normalizedQuery, safeLimit]
+    )
+
+    return rows
+  }
+
+  async followUser({ followerId, followingId }) {
+    const [result] = await this.pool.query(
+      `INSERT IGNORE INTO user_follows (follower_id, following_id)
+       VALUES (?, ?)`,
+      [followerId, followingId]
+    )
+
+    return Number(result.affectedRows || 0) > 0
+  }
+
+  async unfollowUser({ followerId, followingId }) {
+    const [result] = await this.pool.query(
+      `DELETE FROM user_follows
+       WHERE follower_id = ?
+         AND following_id = ?`,
+      [followerId, followingId]
+    )
+
+    return Number(result.affectedRows || 0) > 0
+  }
+
+  async isFollowing({ followerId, followingId }) {
+    const [rows] = await this.pool.query(
+      `SELECT 1
+       FROM user_follows
+       WHERE follower_id = ?
+         AND following_id = ?
+       LIMIT 1`,
+      [followerId, followingId]
+    )
+
+    return rows.length > 0
+  }
+
+  async getFollowCounts(userId) {
+    const [[followersRow], [followingRow]] = await Promise.all([
+      this.pool.query(
+        `SELECT COUNT(*) AS total
+         FROM user_follows
+         WHERE following_id = ?`,
+        [userId]
+      ),
+      this.pool.query(
+        `SELECT COUNT(*) AS total
+         FROM user_follows
+         WHERE follower_id = ?`,
+        [userId]
+      ),
+    ])
+
+    return {
+      followers: Number(followersRow[0]?.total || 0),
+      following: Number(followingRow[0]?.total || 0),
+    }
+  }
+
+  async listFollowing({ userId, limit = 50 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50))
+    const [rows] = await this.pool.query(
+      `SELECT u.id,
+              u.name,
+              u.username,
+              u.avatar_url,
+              u.country_code,
+              COALESCE(us.total_xp, 0) AS total_xp,
+              COALESCE(us.current_level, 1) AS current_level,
+              uf.created_at AS followed_at
+       FROM user_follows uf
+       JOIN users u ON u.id = uf.following_id
+       LEFT JOIN user_stats us ON us.user_id = u.id
+       WHERE uf.follower_id = ?
+       ORDER BY uf.created_at DESC
+       LIMIT ?`,
+      [userId, safeLimit]
+    )
+
+    return rows
+  }
+
+  async listFollowers({ userId, limit = 50 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50))
+    const [rows] = await this.pool.query(
+      `SELECT u.id,
+              u.name,
+              u.username,
+              u.avatar_url,
+              u.country_code,
+              COALESCE(us.total_xp, 0) AS total_xp,
+              COALESCE(us.current_level, 1) AS current_level,
+              uf.created_at AS followed_at,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows back
+                  WHERE back.follower_id = ?
+                    AND back.following_id = u.id
+                ) THEN 1
+                ELSE 0
+              END AS is_following_back
+       FROM user_follows uf
+       JOIN users u ON u.id = uf.follower_id
+       LEFT JOIN user_stats us ON us.user_id = u.id
+       WHERE uf.following_id = ?
+       ORDER BY uf.created_at DESC
+       LIMIT ?`,
+      [userId, userId, safeLimit]
+    )
+
+    return rows
+  }
+
+  async getGlobalLeaderboard({ actorUserId = null, limit = 25 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const [rows] = await this.pool.query(
+      `SELECT ranked.rank_position,
+              ranked.id,
+              ranked.name,
+              ranked.username,
+              ranked.avatar_url,
+              ranked.country_code,
+              ranked.total_xp,
+              ranked.current_level,
+              ranked.lessons_completed,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows uf
+                  WHERE uf.follower_id = ?
+                    AND uf.following_id = ranked.id
+                ) THEN 1
+                ELSE 0
+              END AS is_following
+       FROM (
+         SELECT u.id,
+                u.name,
+                u.username,
+                u.avatar_url,
+                u.country_code,
+                COALESCE(us.total_xp, 0) AS total_xp,
+                COALESCE(us.current_level, 1) AS current_level,
+                COALESCE(us.lessons_completed, 0) AS lessons_completed,
+                ROW_NUMBER() OVER (
+                  ORDER BY COALESCE(us.total_xp, 0) DESC,
+                           COALESCE(us.current_level, 1) DESC,
+                           u.id ASC
+                ) AS rank_position
+         FROM users u
+         LEFT JOIN user_stats us ON us.user_id = u.id
+         WHERE u.is_active = 1
+           AND u.username IS NOT NULL
+           AND u.username <> ''
+       ) AS ranked
+       ORDER BY ranked.rank_position ASC
+       LIMIT ?`,
+      [actorUserId, actorUserId, safeLimit]
+    )
+
+    return rows
+  }
+
+  async getFollowingLeaderboard({ actorUserId, limit = 25 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const [rows] = await this.pool.query(
+      `SELECT ranked.rank_position,
+              ranked.id,
+              ranked.name,
+              ranked.username,
+              ranked.avatar_url,
+              ranked.country_code,
+              ranked.total_xp,
+              ranked.current_level,
+              ranked.lessons_completed,
+              1 AS is_following
+       FROM (
+         SELECT u.id,
+                u.name,
+                u.username,
+                u.avatar_url,
+                u.country_code,
+                COALESCE(us.total_xp, 0) AS total_xp,
+                COALESCE(us.current_level, 1) AS current_level,
+                COALESCE(us.lessons_completed, 0) AS lessons_completed,
+                ROW_NUMBER() OVER (
+                  ORDER BY COALESCE(us.total_xp, 0) DESC,
+                           COALESCE(us.current_level, 1) DESC,
+                           u.id ASC
+                ) AS rank_position
+         FROM user_follows uf
+         JOIN users u ON u.id = uf.following_id
+         LEFT JOIN user_stats us ON us.user_id = u.id
+         WHERE uf.follower_id = ?
+           AND u.is_active = 1
+           AND u.username IS NOT NULL
+           AND u.username <> ''
+       ) AS ranked
+       ORDER BY ranked.rank_position ASC
+       LIMIT ?`,
+      [actorUserId, safeLimit]
+    )
+
+    return rows
   }
 
   async #resolveVerifiedColumn() {
