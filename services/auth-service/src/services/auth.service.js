@@ -45,6 +45,37 @@ function mapUserPayload(user) {
   }
 }
 
+function mapSocialUserPayload(user) {
+  return {
+    id: Number(user.id),
+    username: user.username || null,
+    nombre: user.name || null,
+    avatar: user.avatar_url || null,
+    countryCode: user.country_code || null,
+    totalXp: Number(user.total_xp || 0),
+    currentLevel: Number(user.current_level || 1),
+    lessonsCompleted: Number(user.lessons_completed || 0),
+    isFollowing: Boolean(user.is_following),
+    isFollowingBack: Boolean(user.is_following_back),
+    followedAt: user.followed_at || null,
+  }
+}
+
+function mapLeaderboardEntry(entry) {
+  return {
+    rank: Number(entry.rank_position || 0),
+    id: Number(entry.id),
+    username: entry.username || null,
+    nombre: entry.name || null,
+    avatar: entry.avatar_url || null,
+    countryCode: entry.country_code || null,
+    totalXp: Number(entry.total_xp || 0),
+    currentLevel: Number(entry.current_level || 1),
+    lessonsCompleted: Number(entry.lessons_completed || 0),
+    isFollowing: Boolean(entry.is_following),
+  }
+}
+
 class AuthService {
   constructor({
     userRepository,
@@ -314,6 +345,145 @@ class AuthService {
     })
 
     return mapUserPayload(updatedUser)
+  }
+
+  async searchUsersByUsername({ actorUserId, usernameQuery, limit }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const users = await this.userRepository.searchUsersByUsername({
+      query: usernameQuery,
+      excludeUserId: actorUserId,
+      limit,
+    })
+
+    return {
+      users: users.map(mapSocialUserPayload),
+    }
+  }
+
+  async followUserByUsername({ actorUserId, targetUsername }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const target = await this.userRepository.findByUsername(targetUsername)
+    if (!target || !target.is_active) {
+      throw AppError.notFound('El usuario no existe o escribiste mal el nombre.', 'USER_NOT_FOUND')
+    }
+
+    if (Number(target.id) === Number(actorUserId)) {
+      throw AppError.badRequest('No puedes seguirte a ti mismo.', 'INVALID_FOLLOW_TARGET')
+    }
+
+    const created = await this.userRepository.followUser({
+      followerId: actorUserId,
+      followingId: target.id,
+    })
+
+    const counts = await this.userRepository.getFollowCounts(actorUserId)
+
+    return {
+      created,
+      user: mapSocialUserPayload({
+        ...target,
+        total_xp: target.total_xp || 0,
+        current_level: target.current_level || 1,
+        is_following: 1,
+      }),
+      counts,
+    }
+  }
+
+  async unfollowUserByUsername({ actorUserId, targetUsername }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const target = await this.userRepository.findByUsername(targetUsername)
+    if (!target || !target.is_active) {
+      throw AppError.notFound('El usuario no existe o escribiste mal el nombre.', 'USER_NOT_FOUND')
+    }
+
+    if (Number(target.id) === Number(actorUserId)) {
+      throw AppError.badRequest('No puedes dejar de seguirte a ti mismo.', 'INVALID_FOLLOW_TARGET')
+    }
+
+    const removed = await this.userRepository.unfollowUser({
+      followerId: actorUserId,
+      followingId: target.id,
+    })
+
+    const counts = await this.userRepository.getFollowCounts(actorUserId)
+
+    return {
+      removed,
+      user: mapSocialUserPayload({
+        ...target,
+        total_xp: target.total_xp || 0,
+        current_level: target.current_level || 1,
+        is_following: 0,
+      }),
+      counts,
+    }
+  }
+
+  async getFollowDirectory({ actorUserId, limit }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const [following, followers, counts] = await Promise.all([
+      this.userRepository.listFollowing({ userId: actorUserId, limit }),
+      this.userRepository.listFollowers({ userId: actorUserId, limit }),
+      this.userRepository.getFollowCounts(actorUserId),
+    ])
+
+    return {
+      counts,
+      following: following.map((user) => mapSocialUserPayload({ ...user, is_following: 1 })),
+      followers: followers.map(mapSocialUserPayload),
+    }
+  }
+
+  async getLeaderboard({ actorUserId, scope, limit }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const normalizedScope = String(scope || 'global').trim().toLowerCase()
+    if (!['global', 'following'].includes(normalizedScope)) {
+      throw AppError.badRequest('scope invalido. Usa global o following.', 'VALIDATION_ERROR')
+    }
+
+    const [entries, counts] = await Promise.all([
+      normalizedScope === 'following'
+        ? this.userRepository.getFollowingLeaderboard({ actorUserId, limit })
+        : this.userRepository.getGlobalLeaderboard({ actorUserId, limit }),
+      this.userRepository.getFollowCounts(actorUserId),
+    ])
+
+    return {
+      scope: normalizedScope,
+      counts,
+      entries: entries.map(mapLeaderboardEntry),
+    }
   }
 
   async listUsers({ actorUserId, search, role, status, limit, offset }) {
