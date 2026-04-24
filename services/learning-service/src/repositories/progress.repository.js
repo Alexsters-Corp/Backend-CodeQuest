@@ -80,18 +80,19 @@ class ProgressRepository {
     return rows
   }
 
-  // Fuente de verdad del XP acumulado total (racha + total_xp)
+  // Fuente de verdad del XP acumulado total (racha + total_xp + last_activity_date)
   async getStreakOverview(userId) {
     const [rows] = await this.pool.query(
-      `SELECT COALESCE(MAX(streak_current), 0) AS streak_current,
-              COALESCE(MAX(streak_longest), 0) AS streak_longest,
-              COALESCE(MAX(total_xp), 0) AS total_xp
+      `SELECT COALESCE(MAX(streak_current), 0)  AS streak_current,
+              COALESCE(MAX(streak_longest), 0)  AS streak_longest,
+              COALESCE(MAX(total_xp), 0)        AS total_xp,
+              MAX(last_activity_date)            AS last_activity_date
        FROM user_stats
        WHERE user_id = ?`,
       [userId]
     )
 
-    return rows[0] || { streak_current: 0, streak_longest: 0, total_xp: 0 }
+    return rows[0] || { streak_current: 0, streak_longest: 0, total_xp: 0, last_activity_date: null }
   }
 
   async getLessonStatsByLanguage({ userId, languageId }) {
@@ -138,6 +139,72 @@ class ProgressRepository {
     )
 
     return Number(result.affectedRows || 0)
+  }
+
+  // Actualiza la racha del usuario al completar una lección.
+  // Usa hora Colombia (America/Bogota) para determinar el día.
+  // Es idempotente: si ya completó una lección hoy, no hace nada.
+  async updateStreak(userId) {
+    function getDateColombia(offsetDays = 0) {
+      const d = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000)
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d)
+    }
+
+    const today     = getDateColombia(0)
+    const yesterday = getDateColombia(-1)
+
+    const conn = await this.pool.getConnection()
+    try {
+      await conn.beginTransaction()
+
+      const [rows] = await conn.query(
+        `SELECT streak_current, streak_longest, last_activity_date
+         FROM user_stats WHERE user_id = ? FOR UPDATE`,
+        [userId]
+      )
+
+      const current  = rows[0] || { streak_current: 0, streak_longest: 0, last_activity_date: null }
+      const lastDate = current.last_activity_date
+        ? String(current.last_activity_date).slice(0, 10)
+        : null
+
+      // Idempotente: ya registró actividad hoy
+      if (lastDate === today) {
+        await conn.rollback()
+        return
+      }
+
+      const newStreak  = lastDate === yesterday ? Number(current.streak_current) + 1 : 1
+      const newLongest = Math.max(newStreak, Number(current.streak_longest))
+
+      await conn.query(
+        `INSERT INTO user_stats (user_id, streak_current, streak_longest, last_activity_date)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           streak_current     = ?,
+           streak_longest     = ?,
+           last_activity_date = ?,
+           updated_at         = NOW()`,
+        [userId, newStreak, newLongest, today, newStreak, newLongest, today]
+      )
+
+      // Desbloquear achievement si se alcanza hito de racha
+      if (newStreak === 7 || newStreak === 30) {
+        const slug = newStreak === 7 ? 'streak-7' : 'streak-30'
+        await conn.query(
+          `INSERT IGNORE INTO user_achievements (user_id, achievement_id)
+           SELECT ?, id FROM achievements WHERE slug = ?`,
+          [userId, slug]
+        )
+      }
+
+      await conn.commit()
+    } catch (err) {
+      await conn.rollback()
+      throw err
+    } finally {
+      conn.release()
+    }
   }
 }
 

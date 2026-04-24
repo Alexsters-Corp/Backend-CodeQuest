@@ -808,11 +808,29 @@ class LearningService {
     // user_stats.total_xp es la fuente de verdad del XP acumulado
     const totalXp = Number(streak.total_xp || 0)
 
+    // Evaluacion lazy del streak usando hora Colombia (America/Bogota)
+    function getDateColombia(offsetDays = 0) {
+      const d = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000)
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d)
+    }
+
+    const today     = getDateColombia(0)
+    const yesterday = getDateColombia(-1)
+    const lastDate  = streak.last_activity_date
+      ? String(streak.last_activity_date).slice(0, 10)
+      : null
+
+    const streakActiveToday = lastDate === today
+    const effectiveStreak   = (lastDate === today || lastDate === yesterday)
+      ? Number(streak.streak_current || 0)
+      : 0
+
     return {
       xpTotal: totalXp,
       nivel: Math.max(1, Math.floor(totalXp / 500) + 1),
-      racha: Number(streak.streak_current || 0),
+      racha: effectiveStreak,
       rachaMaxima: Number(streak.streak_longest || 0),
+      streakActiveToday,
       languages,
       achievements: [],
       recentXP: [],
@@ -1362,6 +1380,13 @@ class LearningService {
         lessonId,
         xpReward,
       })
+    }
+
+    // --- Actualizar racha del usuario (no bloquea la respuesta si falla) ---
+    try {
+      await this.progressRepository.updateStreak(userId)
+    } catch (streakError) {
+      console.error('[submitSolution] Error actualizando racha:', streakError)
     }
 
     const updatedProgress = await this.progressRepository.getProgressForLesson({ userId, lessonId })
