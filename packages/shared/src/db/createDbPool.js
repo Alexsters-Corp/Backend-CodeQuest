@@ -25,6 +25,7 @@ function createDbPool({
     charset: 'utf8mb4',
     supportBigNumbers: true,
     dateStrings: true,
+    timezone: '+00:00',
   })
 }
 
