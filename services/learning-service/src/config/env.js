@@ -42,6 +42,7 @@ const env = {
     progress: toBoolean(process.env.FEATURE_LEARNING_PROGRESS, true),
     favorites: toBoolean(process.env.FEATURE_LEARNING_FAVORITES, true),
     codeExecution: toBoolean(process.env.FEATURE_CODE_EXECUTION_ENABLED, true),
+    guestAccess: toBoolean(process.env.FEATURE_GUEST_ACCESS_ENABLED, false),
   },
   execution: {
     judge0ApiUrl: process.env.JUDGE0_API_URL || 'https://ce.judge0.com',
