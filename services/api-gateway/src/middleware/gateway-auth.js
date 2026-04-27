@@ -1,11 +1,17 @@
 const { AppError, extractBearerToken, normalizeRole } = require('@codequest/shared')
 
 function isPublicLearningRoute(req) {
+  const path = req.baseUrl + req.path
+
+  // Demo publico (HU-025): GET y POST permitidos sin token bajo /api/learning/demo
+  if (/^\/api\/learning\/demo(\/.*)?$/.test(path)) {
+    return req.method === 'GET' || req.method === 'POST'
+  }
+
   if (req.method !== 'GET') {
     return false
   }
 
-  const path = req.baseUrl + req.path
   return /^\/api\/learning\/paths(\/\d+)?$/.test(path)
 }
 
