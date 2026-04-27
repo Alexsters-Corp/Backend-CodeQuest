@@ -4,6 +4,7 @@ const { asyncHandler, errorHandler, notFoundHandler } = require('@codequest/shar
 const { env } = require('./config/env')
 const { pool } = require('./services/container')
 const learningRoutes = require('./routes/learning.routes')
+const demoRoutes = require('./routes/demo.routes')
 const instructorRoutes = require('./routes/instructor.routes')
 const adminRoutes = require('./routes/admin.routes')
 
@@ -27,6 +28,9 @@ app.get('/internal/health', asyncHandler(async (_req, res) => {
   return res.status(200).json({ service: env.serviceName, status: 'ok' })
 }))
 
+// Demo publico (HU-025): debe ir ANTES de /api/learning para que no caiga
+// en el router que exige requireGatewayUser.
+app.use('/api/learning/demo', demoRoutes)
 app.use('/api/learning', learningRoutes)
 app.use('/api/instructor', instructorRoutes)
 app.use('/api/admin', adminRoutes)
