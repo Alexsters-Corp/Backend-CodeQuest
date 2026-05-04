@@ -598,6 +598,16 @@ class UserRepository {
     return rows.length > 0 ? 'tokens_valid_after' : 'NULL AS tokens_valid_after'
   }
 
+  async getStats(userId) {
+    const [rows] = await this.pool.query(
+      `SELECT total_xp, current_level, lessons_completed, submissions_total, submissions_accepted, streak_current
+       FROM user_stats
+       WHERE user_id = ?`,
+      [userId]
+    )
+    return rows[0] || null
+  }
+
   async setTokensValidAfter(userId, date) {
     try {
       await this.pool.query(

@@ -28,7 +28,23 @@ function formatSqlDate(dateValue) {
   return `${year}-${month}-${day}`
 }
 
-function mapUserPayload(user) {
+/**
+ * Calcula el índice de "Buena Conducta" (Conduct Score) de forma lineal.
+ * Formula: 70% Precisión (Aceptados/Total) + 30% Consistencia (Racha/7 días).
+ */
+function calculateConductScore(stats) {
+  if (!stats) return 100
+  const total = Number(stats.submissions_total || 0)
+  const accepted = Number(stats.submissions_accepted || 0)
+  const streak = Number(stats.streak_current || 0)
+
+  const accuracy = total === 0 ? 1 : (accepted / total)
+  const consistency = Math.min(streak / 7, 1)
+
+  return Math.round(((accuracy * 0.7) + (consistency * 0.3)) * 100)
+}
+
+function mapUserPayload(user, stats = null) {
   const role = normalizeRole(user.role)
   return {
     id: user.id,
@@ -42,6 +58,9 @@ function mapUserPayload(user) {
     permisos: getPermissionsForRole(role),
     email_verificado: Boolean(user.is_email_verified),
     is_active: Boolean(user.is_active),
+    conductScore: calculateConductScore(stats),
+    totalXp: Number(stats?.total_xp || user.total_xp || 0),
+    currentLevel: Number(stats?.current_level || user.current_level || 1),
   }
 }
 
@@ -110,10 +129,11 @@ class AuthService {
 
     await this.#createAndSendVerifyEmailToken(user)
 
+    const stats = await this.userRepository.getStats(user.id)
     const role = normalizeRole(user.role)
 
     return {
-      user: mapUserPayload(user),
+      user: mapUserPayload(user, stats),
       accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email, role }),
       refreshToken: this.jwtToolkit.signRefreshToken({ id: user.id }),
     }
@@ -138,10 +158,11 @@ class AuthService {
 
     await this.userRepository.touchLastLogin(user.id)
 
+    const stats = await this.userRepository.getStats(user.id)
     const role = normalizeRole(user.role)
 
     return {
-      user: mapUserPayload(user),
+      user: mapUserPayload(user, stats),
       accessToken: this.jwtToolkit.signAccessToken({ id: user.id, email: user.email, role }),
       refreshToken: this.jwtToolkit.signRefreshToken({ id: user.id }),
     }
@@ -311,12 +332,16 @@ class AuthService {
   async getProfile({ userId }) {
     await this.schemaGuardService.assertReady()
 
-    const user = await this.userRepository.findById(userId)
+    const [user, stats] = await Promise.all([
+      this.userRepository.findById(userId),
+      this.userRepository.getStats(userId),
+    ])
+
     if (!user) {
       throw AppError.notFound('Usuario no encontrado.')
     }
 
-    return mapUserPayload(user)
+    return mapUserPayload(user, stats)
   }
 
   async updateProfile({ userId, nombre, email, username, avatar, countryCode, birthDate }) {
@@ -344,7 +369,8 @@ class AuthService {
       emailChanged,
     })
 
-    return mapUserPayload(updatedUser)
+    const stats = await this.userRepository.getStats(userId)
+    return mapUserPayload(updatedUser, stats)
   }
 
   async searchUsersByUsername({ actorUserId, usernameQuery, limit }) {
