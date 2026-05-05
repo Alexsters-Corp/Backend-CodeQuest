@@ -43,12 +43,26 @@ const env = {
     favorites: toBoolean(process.env.FEATURE_LEARNING_FAVORITES, true),
     codeExecution: toBoolean(process.env.FEATURE_CODE_EXECUTION_ENABLED, true),
     guestAccess: toBoolean(process.env.FEATURE_GUEST_ACCESS_ENABLED, false),
+    aiContent: toBoolean(process.env.FEATURE_AI_CONTENT_ENABLED, true),
   },
   execution: {
     judge0ApiUrl: process.env.JUDGE0_API_URL || 'https://ce.judge0.com',
     judge0ApiKey: process.env.JUDGE0_API_KEY || '',
     timeoutMs: toInteger(process.env.CODE_EXECUTION_TIMEOUT_MS, 5000),
     maxCodeLength: toInteger(process.env.CODE_EXECUTION_MAX_CODE_LENGTH, 16000),
+  },
+  ai: {
+    groqApiKey: process.env.GROQ_API_KEY || '', // FIXED: never hardcode the key
+    modelContentGeneration: process.env.AI_MODEL_CONTENT_GENERATION || 'llama-3.3-70b-versatile', // FIXED: correct Groq model ID
+    modelEvaluation: process.env.AI_MODEL_EVALUATION || 'llama-3.3-70b-versatile', // FIXED: correct Groq model ID
+    modelSafetyCheck: process.env.AI_MODEL_SAFETY_CHECK || 'llama-3.3-70b-versatile', // FIXED: llama-guard-3-8b decommissioned; versatile model supports JSON mode
+    maxRetries: toInteger(process.env.AI_MAX_RETRIES, 3),
+    timeoutMs: toInteger(process.env.AI_TIMEOUT_MS, 10000),
+  },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: toInteger(process.env.REDIS_PORT, 6379),
+    password: process.env.REDIS_PASSWORD || '',
   },
 }
 
