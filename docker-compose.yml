@@ -120,6 +120,18 @@ services:
       JUDGE0_API_KEY: ''
       CODE_EXECUTION_TIMEOUT_MS: 5000
       CODE_EXECUTION_MAX_CODE_LENGTH: 16000
+      # FIXED: Groq AI integration env vars
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      FEATURE_AI_CONTENT_ENABLED: ${FEATURE_AI_CONTENT_ENABLED:-true}
+      FEATURE_AI_EVALUATION_ENABLED: ${FEATURE_AI_EVALUATION_ENABLED:-true}
+      AI_MODEL_CONTENT_GENERATION: ${AI_MODEL_CONTENT_GENERATION:-llama-3.3-70b-versatile}
+      AI_MODEL_EVALUATION: ${AI_MODEL_EVALUATION:-llama-3.3-70b-versatile}
+      AI_MODEL_SAFETY_CHECK: ${AI_MODEL_SAFETY_CHECK:-llama-3.3-70b-versatile}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-3}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-10000}
+      # FIXED: Redis connection for AI content caching
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       mariadb:
         condition: service_healthy
