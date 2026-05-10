@@ -38,6 +38,8 @@ function mapUserPayload(user) {
     avatar: user.avatar_url || null,
     countryCode: user.country_code || null,
     birthDate: formatSqlDate(user.birth_date),
+    totalXp: Number(user.total_xp || 0),
+    currentLevel: Number(user.current_level || 1),
     role,
     permisos: getPermissionsForRole(role),
     email_verificado: Boolean(user.is_email_verified),

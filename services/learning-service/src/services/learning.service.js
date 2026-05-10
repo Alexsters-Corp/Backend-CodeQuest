@@ -428,6 +428,11 @@ class LearningService {
       xpReward: lesson.xp_reward,
     })
 
+    await this.progressRepository.addXpToStats({
+      userId,
+      xp: lesson.xp_reward,
+    })
+
     return {
       lesson_id: lessonId,
       status: 'completed',
@@ -739,11 +744,12 @@ class LearningService {
     await this.schemaGuardService.assertGroup('base')
     await this.schemaGuardService.assertGroup('diagnostic')
 
-    const [progress, streak, selectedLanguages, latestAttempts] = await Promise.all([
+    const [progress, streak, selectedLanguages, latestAttempts, recentXP] = await Promise.all([
       this.getProgressOverview(userId),
       this.progressRepository.getStreakOverview(userId),
       this.pathsRepository.listUserSelectedLanguages(userId),
       this.diagnosticRepository.listLatestAttemptsByUser(userId),
+      this.progressRepository.getRecentXP(userId),
     ])
 
     const attemptsByLanguage = new Map(
@@ -805,8 +811,8 @@ class LearningService {
 
     languages.sort((a, b) => a.nombre.localeCompare(b.nombre))
 
-    // user_stats.total_xp es la fuente de verdad del XP acumulado
-    const totalXp = Number(streak.total_xp || 0)
+    // Fuente de verdad: el mayor entre user_stats (denormalizado) y user_progress (suma real)
+    const totalXp = Math.max(Number(streak.total_xp || 0), Number(progress.total_xp || 0))
 
     // Evaluacion lazy del streak usando hora Colombia (America/Bogota)
     function getDateColombia(offsetDays = 0) {
@@ -833,7 +839,7 @@ class LearningService {
       streakActiveToday,
       languages,
       achievements: [],
-      recentXP: [],
+      recentXP,
     }
   }
 

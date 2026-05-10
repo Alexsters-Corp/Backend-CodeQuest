@@ -32,16 +32,19 @@ class UserRepository {
     const profileSelect = await this.#buildProfileSelectColumns()
     const tvaColumn = await this.#resolveTokensValidAfterColumn()
     const [rows] = await this.pool.query(
-      `SELECT id,
-              name,
-              email,
-              role,
-              is_active,
+      `SELECT u.id,
+              u.name,
+              u.email,
+              u.role,
+              u.is_active,
               ${profileSelect},
               ${tvaColumn},
-              ${verifiedColumn} AS is_email_verified
-       FROM users
-       WHERE id = ?
+              ${verifiedColumn} AS is_email_verified,
+              COALESCE(us.total_xp, 0) AS total_xp,
+              COALESCE(us.current_level, 1) AS current_level
+       FROM users u
+       LEFT JOIN user_stats us ON us.user_id = u.id
+       WHERE u.id = ?
        LIMIT 1`,
       [id]
     )
