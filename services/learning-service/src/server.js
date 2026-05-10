@@ -7,6 +7,7 @@ const learningRoutes = require('./routes/learning.routes')
 const demoRoutes = require('./routes/demo.routes')
 const instructorRoutes = require('./routes/instructor.routes')
 const adminRoutes = require('./routes/admin.routes')
+const aiRoutes = require('./routes/ai')
 
 const app = express()
 
@@ -34,6 +35,7 @@ app.use('/api/learning/demo', demoRoutes)
 app.use('/api/learning', learningRoutes)
 app.use('/api/instructor', instructorRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api', aiRoutes)
 
 app.use(notFoundHandler)
 app.use(errorHandler)

@@ -49,12 +49,15 @@ services:
       - /bin/sh
       - -c
       - |
-        mysql -hmariadb -ucodequest codequest < /migrations/07_seed_lesson_solutions.sql &&
-        mysql -hmariadb -ucodequest codequest < /migrations/08_migration_add_user_profile_fields.sql &&
-        mysql -hmariadb -ucodequest codequest < /migrations/09_migration_lesson_solutions_exercise_fields.sql &&
-        mysql -hmariadb -ucodequest codequest < /migrations/10_migration_security_fixes.sql &&
-        mysql -hmariadb -ucodequest codequest < /migrations/11_migration_add_user_follows.sql
+        until mysql -hmariadb -ucodequest -e "SELECT 1"; do
+          echo "Waiting for MariaDB..."
+          sleep 2
+        done
 
+        for file in /migrations/*.sql; do
+          echo "Running $$file"
+          mysql -hmariadb -ucodequest codequest < "$$file"
+        done
   auth-service:
     build:
       context: .
@@ -117,6 +120,18 @@ services:
       JUDGE0_API_KEY: ''
       CODE_EXECUTION_TIMEOUT_MS: 5000
       CODE_EXECUTION_MAX_CODE_LENGTH: 16000
+      # FIXED: Groq AI integration env vars
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      FEATURE_AI_CONTENT_ENABLED: ${FEATURE_AI_CONTENT_ENABLED:-true}
+      FEATURE_AI_EVALUATION_ENABLED: ${FEATURE_AI_EVALUATION_ENABLED:-true}
+      AI_MODEL_CONTENT_GENERATION: ${AI_MODEL_CONTENT_GENERATION:-llama-3.3-70b-versatile}
+      AI_MODEL_EVALUATION: ${AI_MODEL_EVALUATION:-llama-3.3-70b-versatile}
+      AI_MODEL_SAFETY_CHECK: ${AI_MODEL_SAFETY_CHECK:-llama-3.3-70b-versatile}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-3}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-10000}
+      # FIXED: Redis connection for AI content caching
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       mariadb:
         condition: service_healthy
