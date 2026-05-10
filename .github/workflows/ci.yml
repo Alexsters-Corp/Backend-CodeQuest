@@ -1,0 +1,27 @@
+name: CI Backend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  install:
+    name: Install and Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Syntax check services
+        run: |
+          node --check services/auth-service/src/server.js
+          node --check services/learning-service/src/server.js
+          node --check services/api-gateway/src/server.js

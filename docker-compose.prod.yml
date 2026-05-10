@@ -1,0 +1,90 @@
+# docker-compose de producción — usa imágenes pre-construidas desde ghcr.io
+# Copiar este archivo a /opt/codequest/ en el servidor junto con los .env de cada servicio
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: codequest-mariadb
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: codequest
+      MYSQL_USER: codequest
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-p${DB_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: codequest-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    image: ghcr.io/${GHCR_ORG:-alexsters-corp}/codequest-auth-service:latest
+    container_name: codequest-auth-service
+    restart: unless-stopped
+    env_file:
+      - .env.auth
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  learning-service:
+    image: ghcr.io/${GHCR_ORG:-alexsters-corp}/codequest-learning-service:latest
+    container_name: codequest-learning-service
+    restart: unless-stopped
+    env_file:
+      - .env.learning
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    image: ghcr.io/${GHCR_ORG:-alexsters-corp}/codequest-api-gateway:latest
+    container_name: codequest-api-gateway
+    restart: unless-stopped
+    env_file:
+      - .env.gateway
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+    ports:
+      - '4000:4000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mariadb_data:
