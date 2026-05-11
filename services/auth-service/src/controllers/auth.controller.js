@@ -2,11 +2,12 @@ const { asyncHandler, requireFields, parsePositiveInt, parseString } = require('
 const { authService } = require('../services/container')
 
 const register = asyncHandler(async (req, res) => {
-  requireFields(req.body, ['nombre', 'email', 'password'])
+  requireFields(req.body, ['nombre', 'email', 'username', 'password'])
 
   const data = await authService.register({
     nombre: parseString(req.body.nombre, 'nombre'),
     email: parseString(req.body.email, 'email').toLowerCase(),
+    username: parseString(req.body.username, 'username').toLowerCase(),
     password: parseString(req.body.password, 'password', { trim: false, minLength: 6 }),
   })
 
