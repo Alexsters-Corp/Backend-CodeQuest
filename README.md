@@ -97,13 +97,19 @@ Incluye:
 
 - MariaDB con `utf8mb4` + `utf8mb4_unicode_ci`
 - Redis
+- Migrador SQL incremental (`db-migrator`) con tabla `schema_migrations`
 - Gateway, Auth y Learning
 
-Seed de contenido:
+Migraciones y seed:
 
-- `database/seed_lessons.sql` agrega lecciones publicadas minimas para flujo funcional local.
-- En base limpia (sin volumen previo), Docker las aplica automaticamente al inicializar MariaDB.
-- En bases existentes, aplica `database/migration_add_diagnostic_attempts.sql` para habilitar diagnostico persistente.
+- Todos los archivos `database/*.sql` se aplican una sola vez en orden alfabetico.
+- El estado se registra en `schema_migrations` para evitar re-ejecuciones en reinicios.
+
+Variables de entorno por servicio:
+
+- `services/api-gateway/.env.example`
+- `services/auth-service/.env.example`
+- `services/learning-service/.env.example`
 
 ## Migracion
 

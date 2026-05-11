@@ -141,6 +141,39 @@ class ProgressRepository {
     return Number(result.affectedRows || 0)
   }
 
+  async getRecentXP(userId) {
+    // Obtenemos los últimos 7 días de actividad
+    const [rows] = await this.pool.query(
+      `SELECT
+         DATE_FORMAT(completed_at, '%Y-%m-%d') AS dia,
+         COALESCE(SUM(xp_earned), 0) AS xp
+       FROM user_progress
+       WHERE user_id = ?
+         AND completed_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+       GROUP BY DATE(completed_at)
+       ORDER BY dia ASC`,
+      [userId]
+    )
+
+    // Llenar huecos con 0 si no hubo actividad en algún día
+    function getDateColombia(offsetDays = 0) {
+      const d = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000)
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d)
+    }
+
+    const last7Days = []
+    for (let i = 6; i >= 0; i -= 1) {
+      last7Days.push(getDateColombia(-i))
+    }
+
+    const xpMap = new Map(rows.map((r) => [r.dia, Number(r.xp)]))
+
+    return last7Days.map((dia) => ({
+      dia,
+      xp: xpMap.get(dia) || 0,
+    }))
+  }
+
   // Actualiza la racha del usuario al completar una lección.
   // Usa hora Colombia (America/Bogota) para determinar el día.
   // Es idempotente: si ya completó una lección hoy, no hace nada.

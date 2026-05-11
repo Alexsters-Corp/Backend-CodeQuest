@@ -15,7 +15,6 @@ services:
       - '3306:3306'
     volumes:
       - mariadb_data:/var/lib/mysql
-      - ./database:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-pcodequest']
       interval: 10s
@@ -43,6 +42,7 @@ services:
         condition: service_healthy
     environment:
       MYSQL_PWD: codequest
+      MYSQL_DATABASE: codequest
     volumes:
       - ./database:/migrations:ro
     command:
@@ -54,9 +54,24 @@ services:
           sleep 2
         done
 
+        mysql -hmariadb -ucodequest "$$MYSQL_DATABASE" -e "
+          CREATE TABLE IF NOT EXISTS schema_migrations (
+            name VARCHAR(255) PRIMARY KEY,
+            applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+        "
+
         for file in /migrations/*.sql; do
-          echo "Running $$file"
-          mysql -hmariadb -ucodequest codequest < "$$file"
+          migration_name="$$(basename "$$file")"
+          already_applied="$$(mysql -hmariadb -ucodequest "$$MYSQL_DATABASE" -Nse "SELECT COUNT(*) FROM schema_migrations WHERE name='$$migration_name';")"
+
+          if [ "$$already_applied" = "0" ]; then
+            echo "Applying migration: $$migration_name"
+            mysql -hmariadb -ucodequest "$$MYSQL_DATABASE" < "$$file"
+            mysql -hmariadb -ucodequest "$$MYSQL_DATABASE" -e "INSERT INTO schema_migrations (name) VALUES ('$$migration_name');"
+          else
+            echo "Skipping already applied migration: $$migration_name"
+          fi
         done
   auth-service:
     build:
@@ -64,8 +79,6 @@ services:
       dockerfile: services/auth-service/Dockerfile
     container_name: codequest-auth-service
     restart: unless-stopped
-    env_file:
-      - services/auth-service/.env
     environment:
       NODE_ENV: development
       PORT: 4001
@@ -80,6 +93,12 @@ services:
       JWT_REFRESH_SECRET: change_me_refresh_secret
       JWT_ACCESS_EXPIRES: 1h
       JWT_REFRESH_EXPIRES: 7d
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@codequest.local}
     depends_on:
       mariadb:
         condition: service_healthy
