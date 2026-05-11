@@ -79,11 +79,11 @@ class UserRepository {
     return rows[0] || null
   }
 
-  async createUser({ name, email, passwordHash }) {
+  async createUser({ name, email, username, passwordHash }) {
     const [result] = await this.pool.query(
-      `INSERT INTO users (name, email, password_hash, created_at, updated_at)
-       VALUES (?, ?, ?, NOW(), NOW())`,
-      [name, email, passwordHash]
+      `INSERT INTO users (name, email, username, password_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NOW(), NOW())`,
+      [name, email, username, passwordHash]
     )
 
     return this.findById(result.insertId)

@@ -95,18 +95,26 @@ class AuthService {
     this.jwtToolkit = jwtToolkit
   }
 
-  async register({ nombre, email, password }) {
+  async register({ nombre, email, username, password }) {
     await this.schemaGuardService.assertReady()
 
-    const existing = await this.userRepository.findByEmail(email)
-    if (existing) {
+    const existingEmail = await this.userRepository.findByEmail(email)
+    if (existingEmail) {
       throw AppError.conflict('El email ya esta registrado.', 'EMAIL_ALREADY_REGISTERED')
+    }
+
+    if (username) {
+      const existingUsername = await this.userRepository.findByUsername(username)
+      if (existingUsername) {
+        throw AppError.conflict('El nombre de usuario ya esta en uso.', 'USERNAME_ALREADY_TAKEN')
+      }
     }
 
     const passwordHash = await bcrypt.hash(password, 10)
     const user = await this.userRepository.createUser({
       name: nombre,
       email,
+      username,
       passwordHash,
     })
 
