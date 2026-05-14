@@ -18,6 +18,14 @@ const LANGUAGE_ID_TO_JUDGE0 = Object.freeze({
   7: 72,
 })
 
+const ENABLED_JUDGE0_LANGUAGE_IDS = new Set(Object.values(LANGUAGE_ID_TO_JUDGE0))
+
+const ALLOWED_CONTENT_MODELS = new Set([
+  'llama-3.3-70b-versatile',
+  'llama-4-scout',
+  'qwen-qwq-32b',
+])
+
 const LANGUAGE_NAME_TO_JUDGE0 = Object.freeze({
   javascript: 63,
   js: 63,
@@ -101,11 +109,38 @@ async function writeCache(key, value, ttlSeconds) {
 
 function resolveJudge0LanguageId({ language, languageId }) {
   if (languageId) {
-    return LANGUAGE_ID_TO_JUDGE0[languageId] || null
+    const numericLanguageId = Number(languageId)
+    if (ENABLED_JUDGE0_LANGUAGE_IDS.has(numericLanguageId)) {
+      return numericLanguageId
+    }
+
+    return LANGUAGE_ID_TO_JUDGE0[numericLanguageId] || null
   }
 
   const normalized = normalizeLanguageInput(language)
   return LANGUAGE_NAME_TO_JUDGE0[normalized] || null
+}
+
+function resolveContentModel(model) {
+  const normalized = String(model || '').trim()
+  return ALLOWED_CONTENT_MODELS.has(normalized) ? normalized : env.ai.modelContentGeneration
+}
+
+function normalizeExerciseDifficultyForStorage(difficulty) {
+  const normalized = String(difficulty || '').trim().toLowerCase()
+  if (normalized === 'easy') {
+    return 'beginner'
+  }
+
+  if (normalized === 'medium') {
+    return 'intermediate'
+  }
+
+  if (normalized === 'hard') {
+    return 'advanced'
+  }
+
+  return normalized
 }
 
 // FIXED: uses singleton groqClient; added jsonMode for response_format; added error logging
@@ -276,9 +311,10 @@ class GroqContentService {
     this.pool = pool
   }
 
-  async generateLesson(topic, language, level, createdBy) {
+  async generateLesson(topic, language, level, createdBy, model) {
     try {
-      const cacheKey = `lesson:${topic}:${language}:${level}` // FIXED: use spec-defined key format
+      const modelUsed = resolveContentModel(model)
+      const cacheKey = `lesson:${topic}:${language}:${level}:${modelUsed}` // FIXED: use spec-defined key format
       const cached = await readCache(cacheKey)
       if (cached) {
         return cached
@@ -287,7 +323,7 @@ class GroqContentService {
       const maxRetries = env.ai.maxRetries || 3
 
       for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
-        const content = await this.#generateLessonPayload(topic, language, level)
+        const content = await this.#generateLessonPayload(topic, language, level, modelUsed)
         const classification = await this.classifyContent(content)
         const quality = await this.validateContentQuality(content)
 
@@ -334,7 +370,7 @@ class GroqContentService {
           topic,
           language,
           content: storedPayload,
-          modelUsed: env.ai.modelContentGeneration,
+          modelUsed,
           qualityScore: quality.qualityScore,
           difficultyLevel: classification.level,
           judge0Validated: true,
@@ -351,6 +387,7 @@ class GroqContentService {
             testCases: content.exercise?.testCases || [],
             expectedOutput: content.exercise?.expectedOutput || '',
           },
+          modelUsed,
         }
 
         await writeCache(cacheKey, response, LESSON_CACHE_TTL_SECONDS)
@@ -369,9 +406,10 @@ class GroqContentService {
     }
   }
 
-  async generateExercise(concept, difficulty, languageId, createdBy) {
+  async generateExercise(concept, difficulty, languageId, createdBy, model) {
     try {
-      const cacheKey = hashKey('ai:exercise', { concept, difficulty, languageId })
+      const modelUsed = resolveContentModel(model)
+      const cacheKey = hashKey('ai:exercise', { concept, difficulty, languageId, model: modelUsed })
       const cached = await readCache(cacheKey)
       if (cached) {
         return cached
@@ -380,7 +418,7 @@ class GroqContentService {
       const maxRetries = env.ai.maxRetries || 3
 
       for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
-        const content = await this.#generateExercisePayload(concept, difficulty, languageId)
+        const content = await this.#generateExercisePayload(concept, difficulty, languageId, modelUsed)
         const quality = await this.validateContentQuality(content)
 
         if (!quality.approved) {
@@ -413,9 +451,9 @@ class GroqContentService {
           topic: concept,
           language: String(languageId),
           content: storedPayload,
-          modelUsed: env.ai.modelContentGeneration,
+          modelUsed,
           qualityScore: quality.qualityScore,
-          difficultyLevel: difficulty,
+          difficultyLevel: normalizeExerciseDifficultyForStorage(difficulty),
           judge0Validated: true,
           createdBy,
         })
@@ -425,6 +463,7 @@ class GroqContentService {
           starterCode: content.starterCode,
           testCases: content.testCases || [],
           expectedOutput: content.expectedOutput || '',
+          modelUsed,
         }
 
         await writeCache(cacheKey, response, LESSON_CACHE_TTL_SECONDS)
@@ -530,7 +569,7 @@ class GroqContentService {
     }
   }
 
-  async #generateLessonPayload(topic, language, level) {
+  async #generateLessonPayload(topic, language, level, model) {
     try {
       const messages = [
         {
@@ -552,7 +591,7 @@ class GroqContentService {
 
       const raw = await callGroqWithRetry(
         {
-          model: env.ai.modelContentGeneration,
+          model,
           messages,
           temperature: 0.4,
           maxTokens: 1400,
@@ -575,7 +614,7 @@ class GroqContentService {
     }
   }
 
-  async #generateExercisePayload(concept, difficulty, languageId) {
+  async #generateExercisePayload(concept, difficulty, languageId, model) {
     try {
       const messages = [
         {
@@ -597,7 +636,7 @@ class GroqContentService {
 
       const raw = await callGroqWithRetry(
         {
-          model: env.ai.modelContentGeneration,
+          model,
           messages,
           temperature: 0.5,
           maxTokens: 1000,
