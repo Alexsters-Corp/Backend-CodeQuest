@@ -19,6 +19,14 @@ const listClasses = asyncHandler(async (req, res) => {
   return res.status(200).json(payload)
 })
 
+const listInvites = asyncHandler(async (req, res) => {
+  const payload = await learningService.listInstructorInvites({
+    instructorUserId: req.user.id,
+  })
+
+  return res.status(200).json(payload)
+})
+
 const generateInvite = asyncHandler(async (req, res) => {
   const classId = parsePositiveInt(req.params.id, 'id')
 
@@ -29,6 +37,30 @@ const generateInvite = asyncHandler(async (req, res) => {
     inviteEmail: req.body?.email,
     expiresAt: req.body?.expiresAt,
     maxUses: req.body?.maxUses,
+  })
+
+  return res.status(201).json(payload)
+})
+
+const revokeInvite = asyncHandler(async (req, res) => {
+  const inviteId = parsePositiveInt(req.params.id, 'id')
+
+  const payload = await learningService.revokeInviteCode({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    inviteId,
+  })
+
+  return res.status(200).json(payload)
+})
+
+const rotateInvite = asyncHandler(async (req, res) => {
+  const classId = parsePositiveInt(req.params.id, 'id')
+
+  const payload = await learningService.rotateInviteCode({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    classId,
   })
 
   return res.status(201).json(payload)
@@ -64,7 +96,10 @@ const classAnalytics = asyncHandler(async (req, res) => {
 module.exports = {
   createClass,
   listClasses,
+  listInvites,
   generateInvite,
+  revokeInvite,
+  rotateInvite,
   assignPath,
   classAnalytics,
 }
