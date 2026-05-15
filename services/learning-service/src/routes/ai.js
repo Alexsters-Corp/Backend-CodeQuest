@@ -19,16 +19,21 @@ function ensureAiEnabled(req, res, next) {
   return next()
 }
 
-function sendError(res, error) {
+function sendError(res, error, fallbackCode = 'INTERNAL_ERROR', options = {}) {
   const isAppError = error instanceof AppError
   const status = isAppError ? error.statusCode : 500
   const message = isAppError ? error.message : 'Error interno del servidor.'
-  const code = isAppError ? error.code : 'INTERNAL_ERROR'
-
-  return res.status(status).json({
+  const code = options.forceCode ? fallbackCode : (isAppError ? error.code : fallbackCode)
+  const payload = {
     error: message,
     code,
-  })
+  }
+
+  if (env.nodeEnv !== 'production') {
+    payload.detail = error?.details || error?.stack || error?.message || null
+  }
+
+  return res.status(status).json(payload)
 }
 
 router.post(
@@ -43,8 +48,9 @@ router.post(
       const topic = parseString(req.body.topic, 'topic')
       const language = parseString(req.body.language, 'language')
       const level = parseString(req.body.level, 'level')
+      const model = req.body.model ? parseString(req.body.model, 'model') : undefined
 
-      const payload = await groqContentService.generateLesson(topic, language, level, req.user.id)
+      const payload = await groqContentService.generateLesson(topic, language, level, req.user.id, model)
       return res.status(200).json(payload)
     } catch (error) {
       return sendError(res, error)
@@ -64,15 +70,17 @@ router.post(
       const concept = parseString(req.body.concept, 'concept')
       const difficulty = parseString(req.body.difficulty, 'difficulty')
       const languageId = Number(req.body.languageId)
+      const model = req.body.model ? parseString(req.body.model, 'model') : undefined
 
       if (!Number.isInteger(languageId) || languageId <= 0) {
         throw AppError.badRequest('languageId debe ser un entero positivo.', 'VALIDATION_ERROR')
       }
 
-      const payload = await groqContentService.generateExercise(concept, difficulty, languageId, req.user.id)
+      const payload = await groqContentService.generateExercise(concept, difficulty, languageId, req.user.id, model)
       return res.status(200).json(payload)
     } catch (error) {
-      return sendError(res, error)
+      console.error('[generate-exercise] Error:', error.message, error.stack)
+      return sendError(res, error, 'EXERCISE_GENERATION_FAILED', { forceCode: true })
     }
   }
 )
