@@ -8,6 +8,17 @@ const { groqContentService, groqEvaluationService, pool } = require('../services
 
 const router = express.Router()
 
+// Judge0 language ID to language name mapping
+const JUDGE0_LANGUAGE_MAP = {
+  '63': 'javascript',
+  '71': 'python',
+  '62': 'java',
+  '54': 'cpp',
+  '51': 'csharp',
+  '60': 'go',
+  '72': 'ruby',
+}
+
 function ensureAiEnabled(req, res, next) {
   if (!env.features.aiContent) {
     return res.status(503).json({
@@ -44,11 +55,20 @@ router.post(
   instructorAiLimit,
   async (req, res) => {
     try {
-      requireFields(req.body, ['topic', 'language', 'level'])
+      requireFields(req.body, ['topic', 'languageId', 'level'])
       const topic = parseString(req.body.topic, 'topic')
-      const language = parseString(req.body.language, 'language')
+      const languageId = Number(req.body.languageId)
       const level = parseString(req.body.level, 'level')
       const model = req.body.model ? parseString(req.body.model, 'model') : undefined
+
+      if (!Number.isInteger(languageId) || languageId <= 0) {
+        throw AppError.badRequest('languageId debe ser un entero positivo.', 'VALIDATION_ERROR')
+      }
+
+      const language = JUDGE0_LANGUAGE_MAP[String(languageId)]
+      if (!language) {
+        throw AppError.badRequest('languageId no es válido.', 'VALIDATION_ERROR')
+      }
 
       const payload = await groqContentService.generateLesson(topic, language, level, req.user.id, model)
       return res.status(200).json(payload)
