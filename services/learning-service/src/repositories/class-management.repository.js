@@ -60,6 +60,7 @@ class ClassManagementRepository {
          GROUP BY class_id
        ) ap ON ap.class_id = ic.id
        WHERE ic.instructor_user_id = ?
+         AND ic.is_active = TRUE
        ORDER BY ic.created_at DESC`,
       [instructorUserId]
     )
@@ -78,6 +79,52 @@ class ClassManagementRepository {
     )
 
     return rows[0] || null
+  }
+
+  async deleteClass(classId) {
+    // Soft delete by setting is_active = FALSE
+    await this.pool.query(
+      `UPDATE instructor_classes
+       SET is_active = FALSE, updated_at = NOW()
+       WHERE id = ?`,
+      [classId]
+    )
+  }
+
+  async updateClass({ classId, name, description }) {
+    const fields = []
+    const values = []
+
+    if (name !== undefined) {
+      fields.push('name = ?')
+      values.push(name)
+    }
+
+    if (description !== undefined) {
+      fields.push('description = ?')
+      values.push(description)
+    }
+
+    if (fields.length === 0) return
+
+    values.push(classId)
+
+    await this.pool.query(
+      `UPDATE instructor_classes
+       SET ${fields.join(', ')}, updated_at = NOW()
+       WHERE id = ?`,
+      values
+    )
+  }
+
+  async removeStudent(classId, studentUserId) {
+    // Soft remove by setting status = 'removed'
+    await this.pool.query(
+      `UPDATE class_students
+       SET status = 'removed', updated_at = NOW()
+       WHERE class_id = ? AND student_user_id = ?`,
+      [classId, studentUserId]
+    )
   }
 
   async createInviteCode({ classId, code, inviteEmail, expiresAt, maxUses, createdByUserId }) {
@@ -191,6 +238,118 @@ class ClassManagementRepository {
       },
       students: studentsRows,
     }
+  }
+
+  async findInviteByCode(code) {
+    const [rows] = await this.pool.query(
+      `SELECT cic.id,
+              cic.class_id,
+              cic.code,
+              cic.invite_email,
+              cic.expires_at,
+              cic.max_uses,
+              cic.used_count,
+              cic.is_active,
+              cic.created_by_user_id,
+              ic.name AS class_name
+       FROM class_invite_codes cic
+       JOIN instructor_classes ic ON ic.id = cic.class_id
+       WHERE cic.code = ?
+       LIMIT 1`,
+      [code]
+    )
+
+    return rows[0] || null
+  }
+
+  async listInvitesByInstructor(instructorUserId) {
+    const [rows] = await this.pool.query(
+      `SELECT cic.id,
+              cic.class_id,
+              cic.code,
+              cic.invite_email,
+              cic.expires_at,
+              cic.max_uses,
+              cic.used_count,
+              cic.is_active,
+              cic.created_at,
+              ic.name AS class_name
+       FROM class_invite_codes cic
+       JOIN instructor_classes ic ON ic.id = cic.class_id
+       WHERE ic.instructor_user_id = ?
+       ORDER BY cic.created_at DESC`,
+      [instructorUserId]
+    )
+
+    return rows
+  }
+
+  async createClassAuditLog({ classId, actorUserId, eventType, details }) {
+    await this.pool.query(
+      `INSERT INTO class_audit_logs (class_id, actor_user_id, event_type, details)
+       VALUES (?, ?, ?, ?)`,
+      [classId, actorUserId, eventType, details ? JSON.stringify(details) : null]
+    )
+  }
+
+  async revokeInviteCode(inviteId) {
+    await this.pool.query(
+      `UPDATE class_invite_codes
+       SET is_active = FALSE
+       WHERE id = ?`,
+      [inviteId]
+    )
+  }
+
+  async findActiveInviteByClass(classId) {
+    const [rows] = await this.pool.query(
+      `SELECT id, code, expires_at, max_uses, used_count
+       FROM class_invite_codes
+       WHERE class_id = ? AND is_active = TRUE
+       LIMIT 1`,
+      [classId]
+    )
+    return rows[0] || null
+  }
+
+  async incrementInviteUsedCount(inviteId, connection = this.pool) {
+    await connection.query(
+      `UPDATE class_invite_codes
+       SET used_count = used_count + 1
+       WHERE id = ?`,
+      [inviteId]
+    )
+  }
+
+  async enrollStudentInClass({ classId, studentUserId, joinedViaCodeId }, connection = this.pool) {
+    await connection.query(
+      `INSERT INTO class_students (
+          class_id,
+          student_user_id,
+          status,
+          joined_at,
+          joined_via_code_id,
+          created_at,
+          updated_at
+        )
+       VALUES (?, ?, 'active', NOW(), ?, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+         status = 'active',
+         joined_at = COALESCE(joined_at, NOW()),
+         joined_via_code_id = COALESCE(joined_via_code_id, VALUES(joined_via_code_id)),
+         updated_at = NOW()`,
+      [classId, studentUserId, joinedViaCodeId || null]
+    )
+  }
+
+  async isStudentEnrolled(classId, studentUserId) {
+    const [rows] = await this.pool.query(
+      `SELECT id FROM class_students
+       WHERE class_id = ? AND student_user_id = ? AND status = 'active'
+       LIMIT 1`,
+      [classId, studentUserId]
+    )
+    return rows.length > 0
   }
 
   async createLearningPath({

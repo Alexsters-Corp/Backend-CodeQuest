@@ -1116,6 +1116,82 @@ class LearningService {
     }
   }
 
+  async deleteInstructorClass({ actorUserId, actorRole, classId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes eliminar una clase que no te pertenece.')
+    }
+
+    await this.classManagementRepository.deleteClass(classId)
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'class_deleted',
+      details: { classId },
+    })
+
+    return { success: true }
+  }
+
+  async updateInstructorClass({ actorUserId, actorRole, classId, name, description }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes actualizar una clase que no te pertenece.')
+    }
+
+    await this.classManagementRepository.updateClass({
+      classId,
+      name: name !== undefined ? String(name).trim() : undefined,
+      description: description !== undefined ? String(description || '').trim() : undefined,
+    })
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'class_updated',
+      details: { name, description },
+    })
+
+    return { success: true }
+  }
+
+  async kickStudentFromClass({ actorUserId, actorRole, classId, studentUserId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes expulsar alumnos de una clase que no te pertenece.')
+    }
+
+    await this.classManagementRepository.removeStudent(classId, studentUserId)
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'student_kicked',
+      details: { studentUserId },
+    })
+
+    return { success: true }
+  }
+
   async listInstructorClasses({ instructorUserId }) {
     await this.schemaGuardService.assertGroup('rbac_instructor')
     const classes = await this.classManagementRepository.listClassesByInstructor(instructorUserId)
@@ -1129,6 +1205,165 @@ class LearningService {
         assigned_paths_total: Number(item.assigned_paths_total || 0),
         created_at: item.created_at,
       })),
+    }
+  }
+
+  async listInstructorInvites({ instructorUserId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    const invites = await this.classManagementRepository.listInvitesByInstructor(instructorUserId)
+    return {
+      invites: invites.map((item) => ({
+        id: Number(item.id),
+        class_id: Number(item.class_id),
+        class_name: item.class_name,
+        code: item.code,
+        invite_email: item.invite_email,
+        expires_at: item.expires_at,
+        max_uses: item.max_uses,
+        used_count: Number(item.used_count || 0),
+        is_active: Boolean(item.is_active),
+        created_at: item.created_at,
+      })),
+    }
+  }
+
+  async revokeInviteCode({ actorUserId, actorRole, inviteId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    // Verificamos si existe y si pertenece al instructor
+    // Para simplificar, obtenemos el invite y su clase
+    const invites = await this.classManagementRepository.listInvitesByInstructor(actorUserId)
+    const invite = invites.find((i) => Number(i.id) === Number(inviteId))
+
+    if (!invite && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes revocar una invitación que no te pertenece o no existe.')
+    }
+
+    await this.classManagementRepository.revokeInviteCode(inviteId)
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId: invite ? invite.class_id : null,
+      actorUserId,
+      eventType: 'code_revoked',
+      details: { inviteId, code: invite?.code },
+    })
+
+    return { success: true }
+  }
+
+  async rotateInviteCode({ actorUserId, actorRole, classId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes rotar códigos en una clase que no te pertenece.')
+    }
+
+    // 1. Revocar actual si existe
+    const activeInvite = await this.classManagementRepository.findActiveInviteByClass(classId)
+    if (activeInvite) {
+      await this.classManagementRepository.revokeInviteCode(activeInvite.id)
+    }
+
+    // 2. Generar nuevo
+    const newInviteResult = await this.generateClassInvite({
+      actorUserId,
+      actorRole,
+      classId,
+      maxUses: activeInvite?.max_uses || 30, // Default 30 si no había uno previo
+      expiresAt: activeInvite?.expires_at || null,
+    })
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'code_rotated',
+      details: {
+        oldInviteId: activeInvite?.id,
+        newInviteId: newInviteResult.invite.id,
+      },
+    })
+
+    return newInviteResult
+  }
+
+  async joinClassWithCode({ userId, code }) {
+    await this.schemaGuardService.assertGroup('base')
+
+    const normalizedCode = String(code || '').trim().toUpperCase()
+    if (!normalizedCode) {
+      throw AppError.badRequest('El código de invitación es requerido.', 'VALIDATION_ERROR')
+    }
+
+    const invite = await this.classManagementRepository.findInviteByCode(normalizedCode)
+    if (!invite) {
+      throw AppError.notFound('Código de invitación no válido o inexistente.')
+    }
+
+    if (!invite.is_active) {
+      throw AppError.conflict('Este código de invitación ya no está activo.', 'INVITE_INACTIVE')
+    }
+
+    if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+      throw AppError.conflict('Este código de invitación ha expirado.', 'INVITE_EXPIRED')
+    }
+
+    if (invite.max_uses && invite.used_count >= invite.max_uses) {
+      throw AppError.conflict('Este código de invitación ha alcanzado su límite de usos.', 'INVITE_LIMIT_REACHED')
+    }
+
+    // Idempotencia: Verificar si ya está inscrito
+    const isEnrolled = await this.classManagementRepository.isStudentEnrolled(invite.class_id, userId)
+    if (isEnrolled) {
+      return {
+        success: true,
+        alreadyEnrolled: true,
+        classId: Number(invite.class_id),
+        className: invite.class_name,
+      }
+    }
+
+    // Transacción manual para asegurar integridad
+    const connection = await this.classManagementRepository.pool.getConnection()
+    try {
+      await connection.beginTransaction()
+
+      await this.classManagementRepository.enrollStudentInClass({
+        classId: invite.class_id,
+        studentUserId: userId,
+        joinedViaCodeId: invite.id,
+      }, connection)
+
+      await this.classManagementRepository.incrementInviteUsedCount(invite.id, connection)
+
+      await connection.commit()
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
+
+    // Log de auditoría (fuera de la transacción para no bloquear)
+    try {
+      await this.classManagementRepository.createClassAuditLog({
+        classId: invite.class_id,
+        actorUserId: userId,
+        eventType: 'student_joined',
+        details: { code: invite.code, inviteId: invite.id },
+      })
+    } catch (auditError) {
+      console.error('[joinClassWithCode] Error en log de auditoría:', auditError)
+    }
+
+    return {
+      success: true,
+      classId: Number(invite.class_id),
+      className: invite.class_name,
     }
   }
 
@@ -1172,6 +1407,13 @@ class LearningService {
     if (!invite) {
       throw AppError.conflict('No se pudo generar un código único de invitación. Intenta de nuevo.')
     }
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'code_created',
+      details: { inviteId: invite.id, code: invite.code },
+    })
 
     return {
       invite: {

@@ -17,7 +17,17 @@ const completeLesson = asyncHandler(async (req, res) => {
   return res.status(200).json(result)
 })
 
+const joinClass = asyncHandler(async (req, res) => {
+  const result = await learningService.joinClassWithCode({
+    userId: req.user.id,
+    code: req.body?.code,
+  })
+
+  return res.status(200).json(result)
+})
+
 module.exports = {
   getOverview,
   completeLesson,
+  joinClass,
 }
