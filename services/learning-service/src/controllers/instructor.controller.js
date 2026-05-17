@@ -66,6 +66,47 @@ const rotateInvite = asyncHandler(async (req, res) => {
   return res.status(201).json(payload)
 })
 
+const deleteClass = asyncHandler(async (req, res) => {
+  const classId = parsePositiveInt(req.params.id, 'id')
+
+  const payload = await learningService.deleteInstructorClass({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    classId,
+  })
+
+  return res.status(200).json(payload)
+})
+
+const updateClass = asyncHandler(async (req, res) => {
+  const classId = parsePositiveInt(req.params.id, 'id')
+  const { name, description } = req.body
+
+  const payload = await learningService.updateInstructorClass({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    classId,
+    name,
+    description,
+  })
+
+  return res.status(200).json(payload)
+})
+
+const kickStudent = asyncHandler(async (req, res) => {
+  const classId = parsePositiveInt(req.params.id, 'id')
+  const studentUserId = parsePositiveInt(req.params.studentId, 'studentId')
+
+  const payload = await learningService.kickStudentFromClass({
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+    classId,
+    studentUserId,
+  })
+
+  return res.status(200).json(payload)
+})
+
 const assignPath = asyncHandler(async (req, res) => {
   const classId = parsePositiveInt(req.params.id, 'id')
   const learningPathId = parsePositiveInt(req.body?.learningPathId, 'learningPathId')
@@ -100,6 +141,9 @@ module.exports = {
   generateInvite,
   revokeInvite,
   rotateInvite,
+  deleteClass,
+  updateClass,
+  kickStudent,
   assignPath,
   classAnalytics,
 }

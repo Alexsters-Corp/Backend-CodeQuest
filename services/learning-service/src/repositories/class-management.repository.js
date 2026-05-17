@@ -60,6 +60,7 @@ class ClassManagementRepository {
          GROUP BY class_id
        ) ap ON ap.class_id = ic.id
        WHERE ic.instructor_user_id = ?
+         AND ic.is_active = TRUE
        ORDER BY ic.created_at DESC`,
       [instructorUserId]
     )
@@ -78,6 +79,52 @@ class ClassManagementRepository {
     )
 
     return rows[0] || null
+  }
+
+  async deleteClass(classId) {
+    // Soft delete by setting is_active = FALSE
+    await this.pool.query(
+      `UPDATE instructor_classes
+       SET is_active = FALSE, updated_at = NOW()
+       WHERE id = ?`,
+      [classId]
+    )
+  }
+
+  async updateClass({ classId, name, description }) {
+    const fields = []
+    const values = []
+
+    if (name !== undefined) {
+      fields.push('name = ?')
+      values.push(name)
+    }
+
+    if (description !== undefined) {
+      fields.push('description = ?')
+      values.push(description)
+    }
+
+    if (fields.length === 0) return
+
+    values.push(classId)
+
+    await this.pool.query(
+      `UPDATE instructor_classes
+       SET ${fields.join(', ')}, updated_at = NOW()
+       WHERE id = ?`,
+      values
+    )
+  }
+
+  async removeStudent(classId, studentUserId) {
+    // Soft remove by setting status = 'removed'
+    await this.pool.query(
+      `UPDATE class_students
+       SET status = 'removed', updated_at = NOW()
+       WHERE class_id = ? AND student_user_id = ?`,
+      [classId, studentUserId]
+    )
   }
 
   async createInviteCode({ classId, code, inviteEmail, expiresAt, maxUses, createdByUserId }) {

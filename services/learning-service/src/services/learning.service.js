@@ -1116,6 +1116,82 @@ class LearningService {
     }
   }
 
+  async deleteInstructorClass({ actorUserId, actorRole, classId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes eliminar una clase que no te pertenece.')
+    }
+
+    await this.classManagementRepository.deleteClass(classId)
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'class_deleted',
+      details: { classId },
+    })
+
+    return { success: true }
+  }
+
+  async updateInstructorClass({ actorUserId, actorRole, classId, name, description }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes actualizar una clase que no te pertenece.')
+    }
+
+    await this.classManagementRepository.updateClass({
+      classId,
+      name: name !== undefined ? String(name).trim() : undefined,
+      description: description !== undefined ? String(description || '').trim() : undefined,
+    })
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'class_updated',
+      details: { name, description },
+    })
+
+    return { success: true }
+  }
+
+  async kickStudentFromClass({ actorUserId, actorRole, classId, studentUserId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+
+    const ownedClass = await this.classManagementRepository.findClassOwnedByInstructor({
+      classId,
+      instructorUserId: actorUserId,
+    })
+
+    if (!ownedClass && actorRole !== 'admin') {
+      throw AppError.forbidden('No puedes expulsar alumnos de una clase que no te pertenece.')
+    }
+
+    await this.classManagementRepository.removeStudent(classId, studentUserId)
+
+    await this.classManagementRepository.createClassAuditLog({
+      classId,
+      actorUserId,
+      eventType: 'student_kicked',
+      details: { studentUserId },
+    })
+
+    return { success: true }
+  }
+
   async listInstructorClasses({ instructorUserId }) {
     await this.schemaGuardService.assertGroup('rbac_instructor')
     const classes = await this.classManagementRepository.listClassesByInstructor(instructorUserId)
