@@ -204,29 +204,15 @@ class UserRepository {
     return rows
   }
 
-  async updateRoleAndStatus({ userId, role, isActive }) {
-    const updates = []
-    const params = []
-
-    if (role !== undefined) {
-      updates.push('role = ?')
-      params.push(role)
-    }
-
-    if (isActive !== undefined) {
-      updates.push('is_active = ?')
-      params.push(isActive ? 1 : 0)
-    }
-
-    if (updates.length === 0) {
-      return this.findById(userId)
-    }
-
-    await this.pool.query(
+  async updateRoleAndStatus({ userId, role, isActive, nombre }) {
+    const [result] = await this.pool.query(
       `UPDATE users
-       SET ${updates.join(', ')}, updated_at = NOW()
+       SET role = COALESCE(?, role),
+           is_active = COALESCE(?, is_active),
+           name = COALESCE(?, name),
+           updated_at = NOW()
        WHERE id = ?`,
-      [...params, userId]
+      [role, isActive, nombre, userId]
     )
 
     return this.findById(userId)
@@ -612,6 +598,14 @@ class UserRepository {
     } catch (_error) {
       // Column may not exist yet if migration hasn't run — non-fatal
     }
+  }
+
+  async deleteUserById(userId) {
+    const [result] = await this.pool.query(
+      `DELETE FROM users WHERE id = ?`,
+      [userId]
+    )
+    return result.affectedRows > 0
   }
 }
 

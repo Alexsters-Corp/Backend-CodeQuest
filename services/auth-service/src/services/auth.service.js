@@ -525,9 +525,7 @@ class AuthService {
     }
   }
 
-  async updateUserRole({ actorUserId, targetUserId, role, isActive }) {
-    await this.schemaGuardService.assertReady()
-
+  async updateUserRole({ actorUserId, targetUserId, role, isActive, nombre }) {
     const actor = await this.userRepository.findById(actorUserId)
     if (!actor) {
       throw AppError.notFound('Usuario actor no encontrado.')
@@ -561,12 +559,14 @@ class AuthService {
     const before = {
       role: normalizeRole(target.role),
       is_active: Boolean(target.is_active),
+      name: target.name,
     }
 
     const updated = await this.userRepository.updateRoleAndStatus({
       userId: targetUserId,
       role: normalizedRole,
       isActive,
+      nombre,
     })
 
     try {
@@ -588,6 +588,51 @@ class AuthService {
     return {
       user: mapUserPayload(updated),
     }
+  }
+
+  async deleteUser({ actorUserId, targetUserId }) {
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario actor no encontrado.')
+    }
+
+    if (normalizeRole(actor.role) !== ROLE_ADMIN) {
+      throw AppError.forbidden('Acceso denegado: permisos insuficientes.', 'INSUFFICIENT_ROLE')
+    }
+
+    const target = await this.userRepository.findById(targetUserId)
+    if (!target) {
+      throw AppError.notFound('Usuario objetivo no encontrado.')
+    }
+
+    // Prevenir que un admin se elimine a sí mismo
+    if (Number(target.id) === Number(actorUserId)) {
+      throw AppError.badRequest('No puedes eliminar tu propia cuenta.', 'SELF_DELETE_FORBIDDEN')
+    }
+
+    const deleted = await this.userRepository.deleteUserById(targetUserId)
+    if (!deleted) {
+      throw AppError.internal('No se pudo eliminar el usuario.')
+    }
+
+    try {
+      await this.userRepository.createAdminAuditLog({
+        adminUserId: actorUserId,
+        action: 'user.deleted',
+        entityType: 'users',
+        entityId: targetUserId,
+        oldValue: {
+          email: target.email,
+          name: target.name,
+          role: normalizeRole(target.role),
+        },
+        newValue: null,
+      })
+    } catch (error) {
+      console.warn('[RBAC] No se pudo registrar audit log para deleteUser:', error?.message || error)
+    }
+
+    return { message: 'Usuario eliminado correctamente.' }
   }
 
   async #createAndSendVerifyEmailToken(user) {

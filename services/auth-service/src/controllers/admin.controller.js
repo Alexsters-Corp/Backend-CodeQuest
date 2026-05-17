@@ -23,12 +23,14 @@ const listUsers = asyncHandler(async (req, res) => {
 const updateUser = asyncHandler(async (req, res) => {
   const targetUserId = parsePositiveInt(req.params.id, 'id')
   const role = req.body.role !== undefined ? parseString(req.body.role, 'role') : undefined
+  const nombre = req.body.nombre !== undefined ? parseString(req.body.nombre, 'nombre') : undefined
 
   const payload = await authService.updateUserRole({
     actorUserId: req.user.id,
     targetUserId,
     role,
     isActive: req.body.isActive,
+    nombre,
   })
 
   return res.status(200).json({
@@ -37,7 +39,21 @@ const updateUser = asyncHandler(async (req, res) => {
   })
 })
 
+const deleteUser = asyncHandler(async (req, res) => {
+  const targetUserId = parsePositiveInt(req.params.id, 'id')
+
+  await authService.deleteUser({
+    actorUserId: req.user.id,
+    targetUserId,
+  })
+
+  return res.status(200).json({
+    message: 'Usuario eliminado correctamente.',
+  })
+})
+
 module.exports = {
   listUsers,
   updateUser,
+  deleteUser,
 }
