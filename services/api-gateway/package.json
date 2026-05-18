@@ -6,7 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "jest --coverage"
   },
   "dependencies": {
     "@codequest/shared": "*",
@@ -15,5 +16,18 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.1.0",
     "http-proxy-middleware": "^3.0.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"],
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov"],
+    "moduleNameMapper": {
+      "^@codequest/shared$": "<rootDir>/../../packages/shared/src/index.js"
+    }
   }
 }

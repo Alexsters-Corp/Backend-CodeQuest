@@ -49,9 +49,9 @@ services:
       - /bin/sh
       - -c
       - |
-        until mysql -hmariadb -ucodequest -e "SELECT 1"; do
+        until mysqladmin ping -hmariadb -ucodequest --silent; do
           echo "Waiting for MariaDB..."
-          sleep 2
+          sleep 1
         done
 
         mysql -hmariadb -ucodequest "$$MYSQL_DATABASE" -e "
