@@ -469,7 +469,7 @@ class AuthService {
     }
   }
 
-  async getLeaderboard({ actorUserId, scope, limit }) {
+  async getLeaderboard({ actorUserId, scope, timeframe, limit, offset }) {
     await this.schemaGuardService.assertReady()
 
     const actor = await this.userRepository.findById(actorUserId)
@@ -482,17 +482,36 @@ class AuthService {
       throw AppError.badRequest('scope invalido. Usa global o following.', 'VALIDATION_ERROR')
     }
 
-    const [entries, counts] = await Promise.all([
-      normalizedScope === 'following'
-        ? this.userRepository.getFollowingLeaderboard({ actorUserId, limit })
-        : this.userRepository.getGlobalLeaderboard({ actorUserId, limit }),
+    const normalizedTimeframe = String(timeframe || 'all_time').trim().toLowerCase()
+    if (!['all_time', 'weekly'].includes(normalizedTimeframe)) {
+      throw AppError.badRequest('timeframe invalido. Usa all_time o weekly.', 'VALIDATION_ERROR')
+    }
+
+    let entriesPromise
+    if (normalizedScope === 'following') {
+      entriesPromise = this.userRepository.getFollowingLeaderboard({ actorUserId, limit, offset })
+    } else if (normalizedTimeframe === 'weekly') {
+      entriesPromise = this.userRepository.getWeeklyLeaderboard({ actorUserId, limit, offset })
+    } else {
+      entriesPromise = this.userRepository.getGlobalLeaderboard({ actorUserId, limit, offset })
+    }
+
+    const [entries, counts, myRank] = await Promise.all([
+      entriesPromise,
       this.userRepository.getFollowCounts(actorUserId),
+      this.userRepository.getUserRank({ userId: actorUserId, timeframe: normalizedTimeframe, scope: normalizedScope }),
     ])
 
     return {
       scope: normalizedScope,
+      timeframe: normalizedTimeframe,
       counts,
       entries: entries.map(mapLeaderboardEntry),
+      me: myRank ? {
+        rank: Number(myRank.rank_position),
+        totalXp: Number(myRank.total_xp),
+        currentLevel: Number(myRank.current_level),
+      } : null,
     }
   }
 

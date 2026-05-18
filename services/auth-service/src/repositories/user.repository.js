@@ -394,8 +394,9 @@ class UserRepository {
     return rows
   }
 
-  async getGlobalLeaderboard({ actorUserId = null, limit = 25 }) {
+  async getGlobalLeaderboard({ actorUserId = null, limit = 25, offset = 0 }) {
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const safeOffset = Math.max(0, Number(offset) || 0)
     const [rows] = await this.pool.query(
       `SELECT ranked.rank_position,
               ranked.id,
@@ -437,15 +438,16 @@ class UserRepository {
            AND u.username <> ''
        ) AS ranked
        ORDER BY ranked.rank_position ASC
-       LIMIT ?`,
-      [actorUserId, actorUserId, safeLimit]
+       LIMIT ? OFFSET ?`,
+      [actorUserId, actorUserId, safeLimit, safeOffset]
     )
 
     return rows
   }
 
-  async getFollowingLeaderboard({ actorUserId, limit = 25 }) {
+  async getFollowingLeaderboard({ actorUserId, limit = 25, offset = 0 }) {
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const safeOffset = Math.max(0, Number(offset) || 0)
     const [rows] = await this.pool.query(
       `SELECT ranked.rank_position,
               ranked.id,
@@ -480,11 +482,128 @@ class UserRepository {
            AND u.username <> ''
        ) AS ranked
        ORDER BY ranked.rank_position ASC
-       LIMIT ?`,
-      [actorUserId, safeLimit]
+       LIMIT ? OFFSET ?`,
+      [actorUserId, safeLimit, safeOffset]
     )
 
     return rows
+  }
+
+  async getWeeklyLeaderboard({ actorUserId = null, limit = 25, offset = 0 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const safeOffset = Math.max(0, Number(offset) || 0)
+    const [rows] = await this.pool.query(
+      `SELECT ranked.rank_position,
+              ranked.id,
+              ranked.name,
+              ranked.username,
+              ranked.avatar_url,
+              ranked.country_code,
+              ranked.total_xp,
+              ranked.current_level,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows uf
+                  WHERE uf.follower_id = ?
+                    AND uf.following_id = ranked.id
+                ) THEN 1
+                ELSE 0
+              END AS is_following
+       FROM (
+         SELECT u.id,
+                u.name,
+                u.username,
+                u.avatar_url,
+                u.country_code,
+                COALESCE(SUM(up.xp_earned), 0) AS total_xp,
+                COALESCE(us.current_level, 1) AS current_level,
+                ROW_NUMBER() OVER (
+                  ORDER BY COALESCE(SUM(up.xp_earned), 0) DESC,
+                           u.id ASC
+                ) AS rank_position
+         FROM users u
+         LEFT JOIN user_progress up ON up.user_id = u.id 
+           AND up.completed_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+         LEFT JOIN user_stats us ON us.user_id = u.id
+         WHERE u.is_active = 1
+           AND u.username IS NOT NULL
+           AND u.username <> ''
+         GROUP BY u.id
+       ) AS ranked
+       ORDER BY ranked.rank_position ASC
+       LIMIT ? OFFSET ?`,
+      [actorUserId, actorUserId, safeLimit, safeOffset]
+    )
+
+    return rows
+  }
+
+  async getUserRank({ userId, timeframe = 'all_time', scope = 'global' }) {
+    let query = ''
+    let params = []
+
+    const timeframeFilter = timeframe === 'weekly' 
+      ? 'AND up.completed_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)' 
+      : ''
+    
+    const xpSource = timeframe === 'weekly'
+      ? 'COALESCE(SUM(up.xp_earned), 0)'
+      : 'COALESCE(us.total_xp, 0)'
+
+    if (scope === 'following') {
+      query = `
+        SELECT ranked.rank_position, ranked.total_xp, ranked.current_level
+        FROM (
+          SELECT u.id,
+                 ${xpSource} AS total_xp,
+                 COALESCE(us.current_level, 1) AS current_level,
+                 ROW_NUMBER() OVER (
+                   ORDER BY ${xpSource} DESC, 
+                            ${timeframe === 'weekly' ? '' : 'COALESCE(us.current_level, 1) DESC,'}
+                            u.id ASC
+                 ) AS rank_position
+          FROM user_follows uf
+          JOIN users u ON u.id = uf.following_id OR u.id = uf.follower_id
+          LEFT JOIN user_stats us ON us.user_id = u.id
+          ${timeframe === 'weekly' ? 'LEFT JOIN user_progress up ON up.user_id = u.id ' + timeframeFilter : ''}
+          WHERE (uf.follower_id = ? OR u.id = ?)
+            AND u.is_active = 1
+            AND u.username IS NOT NULL
+            AND u.username <> ''
+          GROUP BY u.id
+        ) AS ranked
+        WHERE ranked.id = ?
+        LIMIT 1`
+      params = [userId, userId, userId]
+    } else {
+      query = `
+        SELECT ranked.rank_position, ranked.total_xp, ranked.current_level
+        FROM (
+          SELECT u.id,
+                 ${xpSource} AS total_xp,
+                 COALESCE(us.current_level, 1) AS current_level,
+                 ROW_NUMBER() OVER (
+                   ORDER BY ${xpSource} DESC, 
+                            ${timeframe === 'weekly' ? '' : 'COALESCE(us.current_level, 1) DESC,'}
+                            u.id ASC
+                 ) AS rank_position
+          FROM users u
+          LEFT JOIN user_stats us ON us.user_id = u.id
+          ${timeframe === 'weekly' ? 'LEFT JOIN user_progress up ON up.user_id = u.id ' + timeframeFilter : ''}
+          WHERE u.is_active = 1
+            AND u.username IS NOT NULL
+            AND u.username <> ''
+          GROUP BY u.id
+        ) AS ranked
+        WHERE ranked.id = ?
+        LIMIT 1`
+      params = [userId]
+    }
+
+    const [rows] = await this.pool.query(query, params)
+    return rows[0] || null
   }
 
   async #resolveVerifiedColumn() {
