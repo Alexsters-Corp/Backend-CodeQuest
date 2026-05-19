@@ -78,6 +78,23 @@ function mapLeaderboardEntry(entry) {
   }
 }
 
+function getDateColombia(offsetDays = 0) {
+  const date = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(date)
+}
+
+function resolveEffectiveStreak(detail) {
+  const today = getDateColombia(0)
+  const yesterday = getDateColombia(-1)
+  const lastDate = detail?.lastActivityDate
+    ? String(detail.lastActivityDate).slice(0, 10)
+    : null
+
+  return (lastDate === today || lastDate === yesterday)
+    ? Number(detail?.streakCurrent || 0)
+    : 0
+}
+
 class AuthService {
   constructor({
     userRepository,
@@ -469,6 +486,51 @@ class AuthService {
     }
   }
 
+  async getPublicProfileByUsername({ actorUserId, username }) {
+    await this.schemaGuardService.assertReady()
+
+    const actor = await this.userRepository.findById(actorUserId)
+    if (!actor) {
+      throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const publicUser = await this.userRepository.getPublicUserProfileByUsername({
+      actorUserId,
+      username,
+    })
+
+    if (!publicUser) {
+      throw AppError.notFound('Usuario no encontrado.', 'USER_NOT_FOUND')
+    }
+
+    const [detailsByUserId, counts] = await Promise.all([
+      this.userRepository.getLeaderboardUserDetails([publicUser.id]),
+      this.userRepository.getFollowCounts(publicUser.id),
+    ])
+
+    const detail = detailsByUserId.get(Number(publicUser.id))
+
+    return {
+      user: {
+        id: Number(publicUser.id),
+        username: publicUser.username || null,
+        nombre: publicUser.name || null,
+        email: publicUser.email || null,
+        avatar: publicUser.avatar_url || null,
+        countryCode: publicUser.country_code || null,
+        birthDate: formatSqlDate(publicUser.birth_date),
+        totalXp: Number(publicUser.total_xp || 0),
+        currentLevel: Number(publicUser.current_level || 1),
+        lessonsCompleted: Number(publicUser.lessons_completed || 0),
+        isFollowing: Boolean(publicUser.is_following),
+        followers: Number(counts.followers || 0),
+        following: Number(counts.following || 0),
+        racha: resolveEffectiveStreak(detail),
+        languages: Array.isArray(detail?.languages) ? detail.languages : [],
+      },
+    }
+  }
+
   async getLeaderboard({ actorUserId, scope, limit }) {
     await this.schemaGuardService.assertReady()
 
@@ -489,10 +551,23 @@ class AuthService {
       this.userRepository.getFollowCounts(actorUserId),
     ])
 
+    const detailsByUserId = await this.userRepository.getLeaderboardUserDetails(
+      entries.map((entry) => entry.id)
+    )
+
     return {
       scope: normalizedScope,
       counts,
-      entries: entries.map(mapLeaderboardEntry),
+      entries: entries.map((entry) => {
+        const mappedEntry = mapLeaderboardEntry(entry)
+        const detail = detailsByUserId.get(mappedEntry.id)
+
+        return {
+          ...mappedEntry,
+          racha: resolveEffectiveStreak(detail),
+          languages: Array.isArray(detail?.languages) ? detail.languages : [],
+        }
+      }),
     }
   }
 

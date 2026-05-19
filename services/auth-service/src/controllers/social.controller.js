@@ -55,9 +55,20 @@ const getFollowDirectory = asyncHandler(async (req, res) => {
   return res.status(200).json(data)
 })
 
+const getPublicProfile = asyncHandler(async (req, res) => {
+  const username = parseString(req.params.username, 'username', { minLength: 1 })
+  const data = await authService.getPublicProfileByUsername({
+    actorUserId: req.user.id,
+    username,
+  })
+
+  return res.status(200).json(data)
+})
+
 module.exports = {
   searchUsers,
   followUser,
   unfollowUser,
   getFollowDirectory,
+  getPublicProfile,
 }

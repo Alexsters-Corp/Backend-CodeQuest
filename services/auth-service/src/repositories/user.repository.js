@@ -433,6 +433,7 @@ class UserRepository {
          FROM users u
          LEFT JOIN user_stats us ON us.user_id = u.id
          WHERE u.is_active = 1
+           AND u.role = 'user'
            AND u.username IS NOT NULL
            AND u.username <> ''
        ) AS ranked
@@ -476,6 +477,7 @@ class UserRepository {
          LEFT JOIN user_stats us ON us.user_id = u.id
          WHERE uf.follower_id = ?
            AND u.is_active = 1
+           AND u.role = 'user'
            AND u.username IS NOT NULL
            AND u.username <> ''
        ) AS ranked
@@ -485,6 +487,115 @@ class UserRepository {
     )
 
     return rows
+  }
+
+  async getLeaderboardUserDetails(userIds = []) {
+    const normalizedIds = Array.from(new Set(
+      userIds
+        .map((userId) => Number(userId))
+        .filter((userId) => Number.isInteger(userId) && userId > 0)
+    ))
+
+    if (normalizedIds.length === 0) {
+      return new Map()
+    }
+
+    const placeholders = normalizedIds.map(() => '?').join(', ')
+    const [streakRows, languageRows] = await Promise.all([
+      this.pool.query(
+        `SELECT us.user_id,
+                COALESCE(MAX(us.streak_current), 0) AS streak_current,
+                MAX(us.last_activity_date) AS last_activity_date
+         FROM user_stats us
+         WHERE us.user_id IN (${placeholders})
+         GROUP BY us.user_id`,
+        normalizedIds
+      ),
+      this.pool.query(
+        `SELECT ulp.user_id,
+                lp.programming_language_id AS language_id,
+                COALESCE(pl.display_name, pl.name) AS language_name,
+                COALESCE(pl.logo_url, 'code') AS language_icon
+         FROM user_learning_paths ulp
+         JOIN learning_paths lp ON lp.id = ulp.learning_path_id
+         JOIN programming_languages pl ON pl.id = lp.programming_language_id
+         WHERE ulp.user_id IN (${placeholders})
+         GROUP BY ulp.user_id,
+                  lp.programming_language_id,
+                  COALESCE(pl.display_name, pl.name),
+                  COALESCE(pl.logo_url, 'code')
+         ORDER BY ulp.user_id ASC, COALESCE(pl.display_name, pl.name) ASC`,
+        normalizedIds
+      ),
+    ])
+
+    const detailsByUserId = new Map()
+
+    for (const row of streakRows[0]) {
+      detailsByUserId.set(Number(row.user_id), {
+        streakCurrent: Number(row.streak_current || 0),
+        lastActivityDate: row.last_activity_date || null,
+        languages: [],
+      })
+    }
+
+    for (const row of languageRows[0]) {
+      const userId = Number(row.user_id)
+      if (!detailsByUserId.has(userId)) {
+        detailsByUserId.set(userId, {
+          streakCurrent: 0,
+          lastActivityDate: null,
+          languages: [],
+        })
+      }
+
+      detailsByUserId.get(userId).languages.push({
+        id: Number(row.language_id),
+        nombre: row.language_name,
+        icono: row.language_icon,
+      })
+    }
+
+    return detailsByUserId
+  }
+
+  async getPublicUserProfileByUsername({ actorUserId = null, username }) {
+    const normalizedUsername = String(username || '').trim()
+    if (!normalizedUsername) {
+      return null
+    }
+
+    const [rows] = await this.pool.query(
+      `SELECT u.id,
+              u.name,
+              u.username,
+              u.email,
+              u.avatar_url,
+              u.country_code,
+              u.birth_date,
+              COALESCE(us.total_xp, 0) AS total_xp,
+              COALESCE(us.current_level, 1) AS current_level,
+              COALESCE(us.lessons_completed, 0) AS lessons_completed,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows uf
+                  WHERE uf.follower_id = ?
+                    AND uf.following_id = u.id
+                ) THEN 1
+                ELSE 0
+              END AS is_following
+       FROM users u
+       LEFT JOIN user_stats us ON us.user_id = u.id
+       WHERE LOWER(u.username) = LOWER(?)
+         AND u.is_active = 1
+         AND u.role = 'user'
+       LIMIT 1`,
+      [actorUserId, actorUserId, normalizedUsername]
+    )
+
+    return rows[0] || null
   }
 
   async #resolveVerifiedColumn() {
