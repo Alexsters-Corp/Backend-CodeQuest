@@ -14,7 +14,7 @@ describe('API Gateway Server', () => {
     process.env.AUTH_VALIDATION_FAIL_OPEN = 'false'
 
     jest.doMock('@codequest/shared', () => ({
-      PORTS: { gateway: 4000, auth: 4001, learning: 4002 },
+      PORTS: { gateway: 4000, auth: 4001, learning: 4002, ai: 4003 },
       createJwtToolkit: jest.fn(() => ({
         verifyAccessToken: jest.fn().mockReturnValue({ id: 1, email: 'test@test.com', role: 'user' }),
         signAccessToken: jest.fn().mockReturnValue('token'),

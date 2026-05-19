@@ -1,4 +1,4 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/src/services/redisClient.js
+// Redis client used by the CodeQuest AI service cache layer.
 const { createClient } = require('redis')
 const { env } = require('../config/env')
 
