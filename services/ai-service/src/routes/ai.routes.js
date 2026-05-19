@@ -1,4 +1,4 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/src/routes/ai.js
+// CodeQuest AI API routes.
 const express = require('express')
 const { AppError, authorize, requireFields, parseString } = require('@codequest/shared')
 const requireGatewayUser = require('../middleware/require-gateway-user')

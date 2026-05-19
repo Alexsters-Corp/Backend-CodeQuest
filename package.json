@@ -8,11 +8,12 @@
     "services/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev -w @codequest/auth-service\" \"npm run dev -w @codequest/learning-service\" \"npm run dev -w @codequest/api-gateway\"",
-    "start": "concurrently \"npm run start -w @codequest/auth-service\" \"npm run start -w @codequest/learning-service\" \"npm run start -w @codequest/api-gateway\"",
+    "dev": "concurrently \"npm run dev -w @codequest/auth-service\" \"npm run dev -w @codequest/learning-service\" \"npm run dev -w @codequest/ai-service\" \"npm run dev -w @codequest/api-gateway\"",
+    "start": "concurrently \"npm run start -w @codequest/auth-service\" \"npm run start -w @codequest/learning-service\" \"npm run start -w @codequest/ai-service\" \"npm run start -w @codequest/api-gateway\"",
     "dev:gateway": "npm run dev -w @codequest/api-gateway",
     "dev:auth": "npm run dev -w @codequest/auth-service",
-    "dev:learning": "npm run dev -w @codequest/learning-service"
+    "dev:learning": "npm run dev -w @codequest/learning-service",
+    "dev:ai": "npm run dev -w @codequest/ai-service"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

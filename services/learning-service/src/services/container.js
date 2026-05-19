@@ -11,8 +11,6 @@ const SolutionsRepository = require('../repositories/solutions.repository')
 const SchemaGuardService = require('./schema-guard.service')
 const { LearningService } = require('./learning.service')
 const diagnosticQuestionBank = require('./diagnostic-question-bank.service')
-const { GroqContentService } = require('./groqContentService')
-const { GroqEvaluationService } = require('./groqEvaluationService')
 
 const pool = createDbPool({
   host: env.db.host,
@@ -48,12 +46,7 @@ const learningService = new LearningService({
   diagnosticQuestionBank,
 })
 
-const groqContentService = new GroqContentService({ pool })
-const groqEvaluationService = new GroqEvaluationService({ pool })
-
 module.exports = {
   pool,
   learningService,
-  groqContentService,
-  groqEvaluationService,
 }

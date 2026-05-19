@@ -1,4 +1,3 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/tests/groqEvaluationService.test.js
 const express = require('express')
 const request = require('supertest')
 
@@ -75,7 +74,7 @@ describe('GroqEvaluationService', () => {
       pool: { query: jest.fn().mockResolvedValue([[]]) },
     }))
 
-    const aiRoutes = require('../src/routes/ai')
+    const aiRoutes = require('../src/routes/ai.routes')
     const app = express()
     app.use(express.json())
     app.use('/api', aiRoutes)

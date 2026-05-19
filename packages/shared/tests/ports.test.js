@@ -13,6 +13,10 @@ describe('PORTS', () => {
     expect(PORTS.learning).toBe(4002)
   })
 
+  test('ai port is 4003', () => {
+    expect(PORTS.ai).toBe(4003)
+  })
+
   test('PORTS is frozen', () => {
     expect(Object.isFrozen(PORTS)).toBe(true)
   })

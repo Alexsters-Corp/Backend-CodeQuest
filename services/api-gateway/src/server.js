@@ -135,14 +135,16 @@ app.get('/', (_req, res) => {
     services: {
       auth: env.authServiceUrl,
       learning: env.learningServiceUrl,
+      ai: env.aiServiceUrl,
     },
   })
 })
 
 app.get('/health', asyncHandler(async (_req, res) => {
-  const [authHealth, learningHealth] = await Promise.all([
+  const [authHealth, learningHealth, aiHealth] = await Promise.all([
     fetch(`${env.authServiceUrl}/internal/health`).then((r) => r.json().catch(() => ({ status: 'error' }))),
     fetch(`${env.learningServiceUrl}/internal/health`).then((r) => r.json().catch(() => ({ status: 'error' }))),
+    fetch(`${env.aiServiceUrl}/internal/health`).then((r) => r.json().catch(() => ({ status: 'error' }))),
   ])
 
   return res.status(200).json({
@@ -150,6 +152,7 @@ app.get('/health', asyncHandler(async (_req, res) => {
     services: {
       auth: authHealth,
       learning: learningHealth,
+      ai: aiHealth,
     },
   })
 }))
@@ -183,6 +186,25 @@ const proxyLearningService = createProxyMiddleware({
   },
 })
 
+const proxyAiService = createProxyMiddleware({
+  target: env.aiServiceUrl,
+  changeOrigin: true,
+  xfwd: true,
+  pathRewrite: (path, req) => {
+    const servicePrefix = req.baseUrl
+    return `${servicePrefix}${path}`
+  },
+  on: {
+    proxyReq: (proxyReq, req) => {
+      if (req.gatewayUser) {
+        proxyReq.setHeader('x-user-id', String(req.gatewayUser.id))
+        proxyReq.setHeader('x-user-email', req.gatewayUser.email || '')
+        proxyReq.setHeader('x-user-role', req.gatewayUser.role || 'user')
+      }
+    },
+  },
+})
+
 const gatewayAuth = createGatewayAuth({
   verifyAccessToken: jwtToolkit.verifyAccessToken,
   isTokenRevoked,
@@ -194,6 +216,11 @@ app.use('/api/users', authLimiter, proxyAuthService)
 app.use('/api/social', authLimiter, proxyAuthService)
 app.use('/api/ranking', authLimiter, proxyAuthService)
 app.use('/api/admin/users', authLimiter, gatewayAuth, proxyAuthService)
+app.use('/api/admin/generate-lesson', learningLimiter, gatewayAuth, proxyAiService)
+app.use('/api/admin/generate-exercise', learningLimiter, gatewayAuth, proxyAiService)
+app.use('/api/admin/validate-content', learningLimiter, gatewayAuth, proxyAiService)
+app.use('/api/learning/evaluate-explanation', learningLimiter, gatewayAuth, proxyAiService)
+app.use('/api/learning/recommendations', learningLimiter, gatewayAuth, proxyAiService)
 app.use('/api/learning', learningLimiter, gatewayAuth, proxyLearningService)
 app.use('/api/instructor', learningLimiter, gatewayAuth, proxyLearningService)
 app.use('/api/admin', learningLimiter, gatewayAuth, proxyLearningService)

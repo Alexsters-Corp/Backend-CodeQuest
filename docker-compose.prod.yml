@@ -67,6 +67,23 @@ services:
       timeout: 5s
       retries: 10
 
+  ai-service:
+    image: ghcr.io/${GHCR_ORG:-alexsters-corp}/codequest-ai-service:latest
+    container_name: codequest-ai-service
+    restart: unless-stopped
+    env_file:
+      - .env.ai
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:4003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   api-gateway:
     image: ghcr.io/${GHCR_ORG:-alexsters-corp}/codequest-api-gateway:latest
     container_name: codequest-api-gateway
@@ -77,6 +94,8 @@ services:
       auth-service:
         condition: service_healthy
       learning-service:
+        condition: service_healthy
+      ai-service:
         condition: service_healthy
     ports:
       - '4000:4000'
