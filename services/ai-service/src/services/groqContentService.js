@@ -1,4 +1,4 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/src/services/groqContentService.js
+// Content generation, validation, and persistence for the CodeQuest AI service.
 const crypto = require('crypto')
 const { AppError } = require('@codequest/shared')
 const { env } = require('../config/env')

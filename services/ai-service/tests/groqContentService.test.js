@@ -1,5 +1,3 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/tests/groqContentService.test.js
-
 describe('GroqContentService classifyContent', () => {
   beforeEach(() => {
     jest.resetModules()

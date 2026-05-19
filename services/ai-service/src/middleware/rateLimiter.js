@@ -1,4 +1,3 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/src/middleware/rateLimiter.js
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit')
 
 function createUserKey(req) {

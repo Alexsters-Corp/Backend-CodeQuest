@@ -36,8 +36,8 @@ El backend es la capa de dominio y orquestacion de CodeQuest. Sus objetivos dent
 
 1. Frontend llama siempre al gateway: `http://localhost:4000`.
 2. Gateway valida JWT, rate limits y revocacion (token_blacklist / tokens_valid_after).
-3. Gateway proxifica a `auth-service` o `learning-service`.
-4. En learning-service se exige `requireGatewayUser` (x-user-\* headers).
+3. Gateway proxifica a `auth-service`, `learning-service` o `ai-service`.
+4. En los servicios internos se exige `requireGatewayUser` cuando la ruta requiere usuario (x-user-\* headers).
 
 ### Servicios y responsabilidades
 
@@ -45,7 +45,7 @@ El backend es la capa de dominio y orquestacion de CodeQuest. Sus objetivos dent
   - Proxy HTTP a servicios internos.
   - Rate limiting global y por dominio (auth/learning).
   - Verificacion de JWT y revocacion (token_blacklist, tokens_valid_after).
-  - Inyecta `x-user-id`, `x-user-email`, `x-user-role` al learning-service.
+  - Inyecta `x-user-id`, `x-user-email`, `x-user-role` a servicios internos protegidos.
 
 - **auth-service (4001)**
   - Registro, login, refresh, logout, password reset.
@@ -57,7 +57,13 @@ El backend es la capa de dominio y orquestacion de CodeQuest. Sus objetivos dent
   - Ejecucion de codigo via Judge0.
   - Favoritos, dashboard, modulos.
   - Panel de instructor y admin (analytics).
-  - AI endpoints (generacion y validacion de contenido) con feature flag.
+
+- **ai-service (4003)**
+  - API propia de IA de CodeQuest.
+  - Generacion de lecciones y ejercicios.
+  - Validacion de calidad de contenido.
+  - Evaluacion de respuestas y recomendaciones personalizadas.
+  - Encapsula Groq Cloud como proveedor externo.
 
 - **packages/shared**
   - AppError, handlers HTTP, JWT toolkit, DB pool, validaciones, guards.
@@ -71,6 +77,7 @@ services/
   api-gateway/
   auth-service/
   learning-service/
+  ai-service/
 database/
 docs/
 scripts/
@@ -79,7 +86,7 @@ scripts/
 ## Contrato de red
 
 - Frontend SIEMPRE consume el gateway: `http://localhost:4000`.
-- Frontend NO debe llamar directo a `4001` o `4002`.
+- Frontend NO debe llamar directo a `4001`, `4002` o `4003`.
 
 Puertos institucionales:
 
@@ -152,7 +159,7 @@ Puertos institucionales:
 - `POST /api/admin/learning-paths`
 - `GET /api/admin/analytics`
 
-### AI (learning-service)
+### AI (ai-service)
 
 - `POST /api/admin/generate-lesson`
 - `POST /api/admin/generate-exercise`
@@ -175,7 +182,7 @@ Puertos institucionales:
 - **JWT** (auth y refresh)
 - **http-proxy-middleware** (gateway)
 - **express-rate-limit** (rate limiting)
-- **Groq** (generacion y evaluacion AI)
+- **Groq** (proveedor externo encapsulado por `ai-service`)
 - **Judge0** (ejecucion de codigo)
 - **Docker + Compose** (stack local)
 - **npm workspaces** (monorepo)
@@ -197,6 +204,7 @@ Puertos institucionales:
 - `FEATURE_CODE_EXECUTION_ENABLED`
 - `FEATURE_GUEST_ACCESS_ENABLED`
 - `FEATURE_AI_CONTENT_ENABLED`
+- `FEATURE_AI_EVALUATION_ENABLED`
 
 ## Configuracion (env)
 
@@ -208,6 +216,7 @@ Cada servicio tiene su `.env`.
 - `FRONTEND_URL`
 - `AUTH_SERVICE_URL`
 - `LEARNING_SERVICE_URL`
+- `AI_SERVICE_URL`
 - `JWT_ACCESS_SECRET`
 - `JWT_REFRESH_SECRET`
 
@@ -222,6 +231,12 @@ Cada servicio tiene su `.env`.
 - DB: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_CONNECTION_LIMIT`
 - Features: `FEATURE_*`
 - Judge0: `JUDGE0_API_URL`, `JUDGE0_API_KEY`, `CODE_EXECUTION_TIMEOUT_MS`, `CODE_EXECUTION_MAX_CODE_LENGTH`
+
+### ai-service
+
+- DB: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_CONNECTION_LIMIT`
+- Features: `FEATURE_AI_CONTENT_ENABLED`, `FEATURE_AI_EVALUATION_ENABLED`
+- Judge0: `JUDGE0_API_URL`, `JUDGE0_API_KEY`, `CODE_EXECUTION_TIMEOUT_MS`
 - AI: `GROQ_API_KEY`, `AI_MODEL_CONTENT_GENERATION`, `AI_MODEL_EVALUATION`, `AI_MODEL_SAFETY_CHECK`,
   `AI_MAX_RETRIES`, `AI_TIMEOUT_MS`
 - Redis: `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`
@@ -259,6 +274,7 @@ Comandos utiles:
 - `npm run dev:gateway`
 - `npm run dev:auth`
 - `npm run dev:learning`
+- `npm run dev:ai`
 
 4. Health checks
 
@@ -266,6 +282,7 @@ Comandos utiles:
 curl http://localhost:4000/health
 curl http://localhost:4001/health
 curl http://localhost:4002/health
+curl http://localhost:4003/health
 ```
 
 ## Docker
@@ -279,7 +296,7 @@ Incluye:
 - MariaDB
 - Redis
 - db-migrator con `schema_migrations`
-- Gateway, Auth y Learning
+- Gateway, Auth, Learning y AI
 
 ## Observabilidad y operaciones
 
@@ -289,7 +306,7 @@ Incluye:
 
 ## Troubleshooting rapido
 
-- **503 en AI**: `FEATURE_AI_CONTENT_ENABLED` en false o `GROQ_API_KEY` vacia.
+- **503 en AI**: `FEATURE_AI_CONTENT_ENABLED` en false, `GROQ_API_KEY` vacia o `ai-service` no disponible.
 - **401 repetido**: refresh token invalido o revocacion (token_blacklist).
 - **Error de DB**: revisar `DB_*` y estado de MariaDB/Redis.
 

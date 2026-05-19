@@ -1671,4 +1671,21 @@ class LearningService {
   }
 }
 
-module.exports = LearningService
+module.exports = {
+  LearningService,
+  normalizeDifficulty,
+  sortPathsByDifficulty,
+  resolveAssignedLevel,
+  pickBestPathForLevel,
+  toRoundedNumber,
+  normalizeAnswers,
+  slugify,
+  createInviteCode,
+  stripLeadingHeading,
+  normalizeComparableText,
+  stripTrailingSemicolon,
+  repairMojibake,
+  sanitizeDisplayText,
+  hasCorruptedGlyphs,
+  inferBaseCodeByLanguage,
+}

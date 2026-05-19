@@ -1,4 +1,4 @@
-// g:/IUP - Yamith Alexander Ardila Cabrera/PSW3/CodeQuest Project/Backend-CodeQuest/services/learning-service/src/services/groqEvaluationService.js
+// Student answer evaluation and personalized feedback for the CodeQuest AI service.
 const { AppError } = require('@codequest/shared')
 const { env } = require('../config/env')
 const { groqClient } = require('../config/groqClient') // FIXED: singleton client, not per-request

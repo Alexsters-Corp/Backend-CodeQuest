@@ -30,6 +30,7 @@ const env = {
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5000',
   authServiceUrl: process.env.AUTH_SERVICE_URL || `http://localhost:${PORTS.auth}`,
   learningServiceUrl: process.env.LEARNING_SERVICE_URL || `http://localhost:${PORTS.learning}`,
+  aiServiceUrl: process.env.AI_SERVICE_URL || `http://localhost:${PORTS.ai}`,
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'dev_access_secret_change_me',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret_change_me',
