@@ -41,6 +41,7 @@ describe('AuthService', () => {
       listFollowers: jest.fn(),
       getGlobalLeaderboard: jest.fn(),
       getFollowingLeaderboard: jest.fn(),
+      getLeaderboardUserDetails: jest.fn().mockResolvedValue(new Map()),
       listUsers: jest.fn(),
       updateRoleAndStatus: jest.fn(),
       deleteUserById: jest.fn(),
