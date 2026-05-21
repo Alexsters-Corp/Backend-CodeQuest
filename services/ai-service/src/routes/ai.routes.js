@@ -123,6 +123,93 @@ router.post(
 )
 
 router.post(
+  '/admin/publish-content',
+  ensureAiEnabled,
+  requireGatewayUser,
+  authorize('admin'),
+  instructorAiLimit,
+  async (req, res) => {
+    try {
+      requireFields(req.body, ['content', 'languageId', 'level', 'validation'])
+      const languageId = Number(req.body.languageId)
+      const level = parseString(req.body.level, 'level')
+      const learningPathId = req.body.learningPathId ? Number(req.body.learningPathId) : null
+
+      if (!Number.isInteger(languageId) || languageId <= 0) {
+        throw AppError.badRequest('languageId debe ser un entero positivo.', 'VALIDATION_ERROR')
+      }
+
+      const payload = await groqContentService.publishGeneratedLesson({
+        content: req.body.content,
+        languageId,
+        level,
+        validation: req.body.validation,
+        publishedBy: req.user.id,
+        learningPathId,
+      })
+
+      return res.status(201).json(payload)
+    } catch (error) {
+      console.error('[publish-content] Error:', error.message, error.details || error.stack)
+      return sendError(res, error, 'CONTENT_PUBLISH_FAILED', { forceCode: true })
+    }
+  }
+)
+
+router.get(
+  '/admin/publish-targets',
+  ensureAiEnabled,
+  requireGatewayUser,
+  authorize('admin'),
+  async (_req, res) => {
+    try {
+      const [rows] = await pool.query(
+        `SELECT
+           pl.id AS language_id,
+           pl.name AS language_name,
+           pl.slug AS language_slug,
+           pl.judge0_language_id,
+           lp.id AS path_id,
+           lp.name AS path_name,
+           lp.difficulty_level
+         FROM programming_languages pl
+         LEFT JOIN learning_paths lp
+           ON lp.programming_language_id = pl.id
+          AND lp.is_active = 1
+         WHERE pl.is_active = 1
+         ORDER BY pl.name ASC, FIELD(lp.difficulty_level, 'principiante', 'intermedio', 'avanzado'), lp.id ASC`
+      )
+
+      const languages = new Map()
+      rows.forEach((row) => {
+        const key = Number(row.judge0_language_id)
+        if (!languages.has(key)) {
+          languages.set(key, {
+            id: Number(row.language_id),
+            name: row.language_name,
+            slug: row.language_slug,
+            judge0LanguageId: key,
+            paths: [],
+          })
+        }
+
+        if (row.path_id) {
+          languages.get(key).paths.push({
+            id: Number(row.path_id),
+            name: row.path_name,
+            difficultyLevel: row.difficulty_level,
+          })
+        }
+      })
+
+      return res.json({ languages: Array.from(languages.values()) })
+    } catch (error) {
+      return sendError(res, error, 'PUBLISH_TARGETS_FAILED', { forceCode: true })
+    }
+  }
+)
+
+router.post(
   '/learning/evaluate-explanation',
   ensureAiEnabled,
   requireGatewayUser,

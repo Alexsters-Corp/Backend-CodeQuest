@@ -39,6 +39,33 @@ const LANGUAGE_NAME_TO_JUDGE0 = Object.freeze({
   ruby: 72,
 })
 
+const DIFFICULTY_TO_PATH_LEVEL = Object.freeze({
+  beginner: 'principiante',
+  intermediate: 'intermedio',
+  advanced: 'avanzado',
+  easy: 'principiante',
+  medium: 'intermedio',
+  hard: 'avanzado',
+})
+
+const PATH_LEVEL_METADATA = Object.freeze({
+  principiante: {
+    suffix: 'Principiante',
+    slug: 'principiante',
+    estimatedHours: 40,
+  },
+  intermedio: {
+    suffix: 'Intermedio',
+    slug: 'intermedio',
+    estimatedHours: 55,
+  },
+  avanzado: {
+    suffix: 'Avanzado',
+    slug: 'avanzado',
+    estimatedHours: 70,
+  },
+})
+
 class ContentGenerationError extends AppError {
   constructor(message, details) {
     super(message || 'No se pudo generar contenido validado.', 502, 'CONTENT_GENERATION_FAILED', details)
@@ -141,6 +168,229 @@ function normalizeExerciseDifficultyForStorage(difficulty) {
   }
 
   return normalized
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function slugify(value) {
+  const slug = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return slug || `ai-lesson-${Date.now()}`
+}
+
+function normalizeQualityScore(value) {
+  const numeric = Number(value || 0)
+  if (!Number.isFinite(numeric)) {
+    return 0
+  }
+
+  return numeric > 1 ? Math.min(numeric / 100, 1) : Math.min(Math.max(numeric, 0), 1)
+}
+
+function normalizeLessonContent(rawContent) {
+  const content = typeof rawContent === 'string' ? parseJsonPayload(rawContent, 'Contenido invalido para publicar.') : rawContent
+  if (!content || typeof content !== 'object') {
+    throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+  }
+
+  const isExerciseOnly = !content.exercise && (content.prompt || content.starterCode || content.solutionCode)
+  const exercise = isExerciseOnly ? content : (content.exercise || {})
+  const prompt = String(exercise.prompt || content.description || '').trim()
+  const title = String(content.title || (isExerciseOnly ? prompt.slice(0, 80) : '') || 'Contenido generado por IA').trim()
+  const theory = String(content.theory || (isExerciseOnly ? prompt : '')).trim()
+  const codeExample = String(content.codeExample || (isExerciseOnly ? exercise.starterCode : '') || '').trim()
+
+  if (!title || !theory) {
+    throw AppError.badRequest('Solo se pueden publicar lecciones generadas completas.', 'LESSON_CONTENT_REQUIRED')
+  }
+
+  return {
+    title,
+    theory,
+    codeExample,
+    exercise: {
+      prompt: String(exercise.prompt || '').trim(),
+      starterCode: String(exercise.starterCode || '').trim(),
+      solutionCode: String(exercise.solutionCode || '').trim(),
+      testCases: Array.isArray(exercise.testCases) ? exercise.testCases : [],
+      expectedOutput: String(exercise.expectedOutput || '').trim(),
+    },
+    modelUsed: content.modelUsed || content.ai_model_used || null,
+    generatedContentId: content.generatedContentId || content.generated_content_id || null,
+  }
+}
+
+function buildLessonHtml(content) {
+  const theoryParagraphs = content.theory
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .join('\n')
+
+  const codeBlock = content.codeExample
+    ? `\n<h3>Ejemplo de codigo</h3>\n<pre><code>${escapeHtml(content.codeExample)}</code></pre>`
+    : ''
+
+  const exerciseBlock = content.exercise.prompt
+    ? `\n<h3>Ejercicio propuesto</h3>\n<p>${escapeHtml(content.exercise.prompt)}</p>`
+    : ''
+
+  return `<h2>${escapeHtml(content.title)}</h2>\n${theoryParagraphs}${codeBlock}${exerciseBlock}`
+}
+
+function buildDescription(content) {
+  const fromExercise = content.exercise.prompt
+  if (fromExercise) {
+    return fromExercise.slice(0, 255)
+  }
+
+  return content.theory.replace(/\s+/g, ' ').trim().slice(0, 255)
+}
+
+function stringifyTestCaseValue(value) {
+  if (value === null || value === undefined) {
+    return ''
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  return JSON.stringify(value)
+}
+
+async function buildUniquePathSlug(connection, baseSlug) {
+  let slug = baseSlug
+
+  for (let suffix = 2; suffix < 100; suffix += 1) {
+    const [rows] = await connection.query(
+      'SELECT id FROM learning_paths WHERE slug = ? LIMIT 1',
+      [slug]
+    )
+
+    if (rows.length === 0) {
+      return slug
+    }
+
+    slug = `${baseSlug}-${suffix}`
+  }
+
+  return `${baseSlug}-${Date.now()}`
+}
+
+async function resolveOrCreateLearningPath(connection, { judge0LanguageId, pathLevel }) {
+  const metadata = PATH_LEVEL_METADATA[pathLevel]
+  if (!metadata) {
+    throw AppError.badRequest('Nivel de dificultad no soportado para publicar.', 'INVALID_LEARNING_PATH_LEVEL')
+  }
+
+  const [languageRows] = await connection.query(
+    `SELECT id, name, slug
+     FROM programming_languages
+     WHERE judge0_language_id = ?
+       AND is_active = 1
+     LIMIT 1`,
+    [judge0LanguageId]
+  )
+
+  const language = languageRows[0]
+  if (!language) {
+    throw AppError.badRequest('No existe un lenguaje activo para publicar este contenido.', 'PROGRAMMING_LANGUAGE_NOT_FOUND')
+  }
+
+  const [pathRows] = await connection.query(
+    `SELECT id, name, programming_language_id, difficulty_level
+     FROM learning_paths
+     WHERE programming_language_id = ?
+       AND difficulty_level = ?
+       AND is_active = 1
+     ORDER BY id ASC
+     LIMIT 1
+     FOR UPDATE`,
+    [language.id, pathLevel]
+  )
+
+  if (pathRows[0]) {
+    return {
+      id: Number(pathRows[0].id),
+      name: pathRows[0].name,
+      programming_language_id: Number(pathRows[0].programming_language_id),
+      difficulty_level: pathRows[0].difficulty_level,
+      created: false,
+    }
+  }
+
+  const pathName = `${language.name} ${metadata.suffix}`
+  const baseSlug = slugify(`${language.slug || language.name}-${metadata.slug}`)
+  const slug = await buildUniquePathSlug(connection, baseSlug)
+
+  const [result] = await connection.query(
+    `INSERT INTO learning_paths (
+       programming_language_id, name, slug, description, difficulty_level, estimated_hours, is_active
+     )
+     VALUES (?, ?, ?, ?, ?, ?, 1)`,
+    [
+      language.id,
+      pathName,
+      slug,
+      `Ruta ${metadata.suffix.toLowerCase()} de ${language.name} creada para contenido asistido por IA.`,
+      pathLevel,
+      metadata.estimatedHours,
+    ]
+  )
+
+  return {
+    id: Number(result.insertId),
+    name: pathName,
+    programming_language_id: Number(language.id),
+    difficulty_level: pathLevel,
+    created: true,
+  }
+}
+
+async function resolveLearningPathById(connection, { learningPathId, judge0LanguageId }) {
+  const numericPathId = Number(learningPathId)
+  if (!Number.isInteger(numericPathId) || numericPathId <= 0) {
+    return null
+  }
+
+  const [rows] = await connection.query(
+    `SELECT lp.id, lp.name, lp.programming_language_id, lp.difficulty_level
+     FROM learning_paths lp
+     JOIN programming_languages pl ON pl.id = lp.programming_language_id
+     WHERE lp.id = ?
+       AND lp.is_active = 1
+       AND pl.is_active = 1
+       AND pl.judge0_language_id = ?
+     LIMIT 1
+     FOR UPDATE`,
+    [numericPathId, judge0LanguageId]
+  )
+
+  if (!rows[0]) {
+    throw AppError.badRequest('La ruta destino no existe o no pertenece al lenguaje seleccionado.', 'INVALID_LEARNING_PATH_TARGET')
+  }
+
+  return {
+    id: Number(rows[0].id),
+    name: rows[0].name,
+    programming_language_id: Number(rows[0].programming_language_id),
+    difficulty_level: rows[0].difficulty_level,
+    created: false,
+  }
 }
 
 // FIXED: uses singleton groqClient; added jsonMode for response_format; added error logging
@@ -331,10 +581,9 @@ class GroqContentService {
           continue
         }
 
+        let judge0Validated = false
+        let validationWarning = null
         const judge0LanguageId = resolveJudge0LanguageId({ language })
-        if (!judge0LanguageId) {
-          throw AppError.badRequest('Lenguaje no soportado para validacion.', 'LANGUAGE_NOT_SUPPORTED')
-        }
 
         const codeExampleValid = await validateSolution({
           sourceCode: content.codeExample,
@@ -343,7 +592,7 @@ class GroqContentService {
         })
 
         if (!codeExampleValid) {
-          continue
+          validationWarning = 'JUDGE0_PARTIAL_VALIDATION'
         }
 
         const solutionCode = content.exercise?.solutionCode
@@ -356,24 +605,27 @@ class GroqContentService {
         })
 
         if (!exerciseValid) {
-          continue
+          validationWarning = 'JUDGE0_PARTIAL_VALIDATION'
         }
+
+        judge0Validated = codeExampleValid && exerciseValid
 
         const storedPayload = {
           ...content,
           difficulty_level: classification.level,
           quality_score: quality.qualityScore,
-          judge0_validated: true,
+          judge0_validated: judge0Validated,
+          validation_warning: validationWarning,
         }
 
-        await this.#saveGeneratedContent({
+        const generatedContentId = await this.#saveGeneratedContent({
           topic,
           language,
           content: storedPayload,
           modelUsed,
           qualityScore: quality.qualityScore,
           difficultyLevel: classification.level,
-          judge0Validated: true,
+          judge0Validated,
           createdBy,
         })
 
@@ -384,18 +636,22 @@ class GroqContentService {
           exercise: {
             prompt: content.exercise?.prompt,
             starterCode: content.exercise?.starterCode,
+            solutionCode: content.exercise?.solutionCode || '',
             testCases: content.exercise?.testCases || [],
             expectedOutput: content.exercise?.expectedOutput || '',
           },
           modelUsed,
+          generatedContentId,
+          judge0Validated,
+          validationWarning,
         }
 
         await writeCache(cacheKey, response, LESSON_CACHE_TTL_SECONDS)
         return response
       }
 
-      throw new ContentGenerationError('No se pudo validar el contenido generado en Judge0.', {
-        reason: 'JUDGE0_VALIDATION_FAILED',
+      throw new ContentGenerationError('No se pudo generar contenido aprobado por el validador de calidad.', {
+        reason: 'QUALITY_VALIDATION_FAILED',
       })
     } catch (error) {
       if (error instanceof ContentGenerationError) {
@@ -426,52 +682,55 @@ class GroqContentService {
         }
 
         const judge0LanguageId = resolveJudge0LanguageId({ languageId })
-        if (!judge0LanguageId) {
-          throw AppError.badRequest('Lenguaje no soportado para validacion.', 'LANGUAGE_NOT_SUPPORTED')
-        }
+        let judge0Validated = false
+        let validationWarning = null
 
         // FIXED: same reason as generateLesson — AI test case inputs are not stdin-compatible
-        const exerciseValid = await validateSolution({
+        const exerciseValid = judge0LanguageId ? await validateSolution({
           sourceCode: content.solutionCode,
           languageId: judge0LanguageId,
           testCases: [],
-        })
+        }) : false
 
-        if (!exerciseValid) {
-          continue
-        }
+        judge0Validated = exerciseValid
+        validationWarning = judge0Validated ? null : 'JUDGE0_PARTIAL_VALIDATION'
 
         const storedPayload = {
           ...content,
           quality_score: quality.qualityScore,
-          judge0_validated: true,
+          judge0_validated: judge0Validated,
+          validation_warning: validationWarning,
         }
 
-        await this.#saveGeneratedContent({
+        const generatedContentId = await this.#saveGeneratedContent({
           topic: concept,
           language: String(languageId),
           content: storedPayload,
           modelUsed,
           qualityScore: quality.qualityScore,
           difficultyLevel: normalizeExerciseDifficultyForStorage(difficulty),
-          judge0Validated: true,
+          judge0Validated,
           createdBy,
         })
 
         const response = {
           prompt: content.prompt,
           starterCode: content.starterCode,
+          solutionCode: content.solutionCode || '',
           testCases: content.testCases || [],
           expectedOutput: content.expectedOutput || '',
           modelUsed,
+          generatedContentId,
+          judge0Validated,
+          validationWarning,
         }
 
         await writeCache(cacheKey, response, LESSON_CACHE_TTL_SECONDS)
         return response
       }
 
-      throw new ContentGenerationError('No se pudo validar el ejercicio generado en Judge0.', {
-        reason: 'JUDGE0_VALIDATION_FAILED',
+      throw new ContentGenerationError('No se pudo generar un ejercicio aprobado por el validador de calidad.', {
+        reason: 'QUALITY_VALIDATION_FAILED',
       })
     } catch (error) {
       if (error instanceof ContentGenerationError) {
@@ -569,6 +828,152 @@ class GroqContentService {
     }
   }
 
+  async publishGeneratedLesson({ content, languageId, level, validation, publishedBy, learningPathId = null }) {
+    const normalizedContent = normalizeLessonContent(content)
+    const judge0LanguageId = Number(languageId)
+    const pathLevel = DIFFICULTY_TO_PATH_LEVEL[String(level || '').trim().toLowerCase()] || null
+    const qualityScore = normalizeQualityScore(validation?.qualityScore)
+
+    if (!validation?.approved || qualityScore < 0.8) {
+      throw AppError.badRequest('El contenido no cumple el score minimo para publicar.', 'CONTENT_NOT_APPROVED')
+    }
+
+    const connection = await this.pool.getConnection()
+
+    try {
+      await connection.beginTransaction()
+
+      const targetPath = learningPathId
+        ? await resolveLearningPathById(connection, { learningPathId, judge0LanguageId })
+        : await resolveOrCreateLearningPath(connection, { judge0LanguageId, pathLevel })
+
+      const [[positionRow]] = await connection.query(
+        `SELECT COALESCE(MAX(order_position), 0) + 1 AS next_position
+         FROM lessons
+         WHERE learning_path_id = ?`,
+        [targetPath.id]
+      )
+
+      const baseSlug = slugify(normalizedContent.title)
+      let slug = baseSlug
+      for (let suffix = 2; suffix < 100; suffix += 1) {
+        const [slugRows] = await connection.query(
+          `SELECT id FROM lessons WHERE learning_path_id = ? AND slug = ? LIMIT 1`,
+          [targetPath.id, slug]
+        )
+
+        if (slugRows.length === 0) {
+          break
+        }
+
+        slug = `${baseSlug}-${suffix}`
+      }
+
+      const [lessonResult] = await connection.query(
+        `INSERT INTO lessons (
+           learning_path_id, title, slug, description, content,
+           order_position, estimated_minutes, is_published, is_ai_assisted, is_free_demo, xp_reward
+         )
+         VALUES (?, ?, ?, ?, ?, ?, 25, 1, 1, 0, 50)`,
+        [
+          targetPath.id,
+          normalizedContent.title,
+          slug,
+          buildDescription(normalizedContent),
+          buildLessonHtml(normalizedContent),
+          Number(positionRow.next_position || 1),
+        ]
+      )
+
+      const lessonId = Number(lessonResult.insertId)
+      const solutionCode = normalizedContent.exercise.solutionCode
+      if (solutionCode) {
+        await connection.query(
+          `INSERT INTO lesson_solutions (
+             lesson_id, language_id, solution_code, explanation, prompt, base_code
+           )
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            lessonId,
+            targetPath.programming_language_id,
+            solutionCode,
+            'Solucion generada con asistencia de IA y validada antes de publicar.',
+            normalizedContent.exercise.prompt || null,
+            normalizedContent.exercise.starterCode || null,
+          ]
+        )
+      }
+
+      const visibleTestCases = normalizedContent.exercise.testCases.slice(0, 10)
+      for (let index = 0; index < visibleTestCases.length; index += 1) {
+        const testCase = visibleTestCases[index] || {}
+        const expectedOutput = stringifyTestCaseValue(testCase.expectedOutput || testCase.expected_output)
+          || normalizedContent.exercise.expectedOutput
+
+        if (!expectedOutput) {
+          continue
+        }
+
+        await connection.query(
+          `INSERT INTO lesson_test_cases (
+             lesson_id, input_data, expected_output, is_hidden, points, order_position
+           )
+           VALUES (?, ?, ?, 0, 10, ?)`,
+          [
+            lessonId,
+            stringifyTestCaseValue(testCase.input),
+            expectedOutput,
+            index + 1,
+          ]
+        )
+      }
+
+      if (normalizedContent.generatedContentId) {
+        await connection.query(
+          `UPDATE ai_generated_content
+           SET published = 1,
+               published_lesson_id = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [lessonId, normalizedContent.generatedContentId]
+        )
+      } else {
+        await connection.query(
+          `INSERT INTO ai_generated_content
+            (topic, language, original_content, validated_by, quality_score, difficulty_level, ai_model_used, judge0_validated, published, published_lesson_id, created_by)
+           VALUES (?, ?, ?, 'admin', ?, ?, ?, 1, 1, ?, ?)`,
+          [
+            normalizedContent.title,
+            String(judge0LanguageId),
+            JSON.stringify(normalizedContent),
+            qualityScore,
+            normalizeExerciseDifficultyForStorage(level || 'beginner'),
+            normalizedContent.modelUsed || env.ai.modelContentGeneration,
+            lessonId,
+            publishedBy || null,
+          ]
+        )
+      }
+
+      await connection.commit()
+
+      return {
+        lessonId,
+        learningPathId: Number(targetPath.id),
+        learningPathName: targetPath.name,
+        learningPathCreated: Boolean(targetPath.created),
+        difficultyLevel: targetPath.difficulty_level,
+        orderPosition: Number(positionRow.next_position || 1),
+        isAiAssisted: true,
+      }
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
+  }
+
   async #generateLessonPayload(topic, language, level, model) {
     try {
       const messages = [
@@ -663,11 +1068,13 @@ class GroqContentService {
     createdBy,
   }) {
     try {
+      const id = crypto.randomUUID()
       await this.pool.query(
         `INSERT INTO ai_generated_content
-          (topic, language, original_content, validated_by, quality_score, difficulty_level, ai_model_used, judge0_validated, published, created_by)
-         VALUES (?, ?, ?, 'ai', ?, ?, ?, ?, 0, ?)`,
+          (id, topic, language, original_content, validated_by, quality_score, difficulty_level, ai_model_used, judge0_validated, published, created_by)
+         VALUES (?, ?, ?, ?, 'ai', ?, ?, ?, ?, 0, ?)`,
         [
+          id,
           topic,
           language,
           JSON.stringify(content),
@@ -678,6 +1085,8 @@ class GroqContentService {
           createdBy || null,
         ]
       )
+
+      return id
     } catch (error) {
       throw error
     }

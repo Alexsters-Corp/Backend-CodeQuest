@@ -11,6 +11,7 @@ class LessonsRepository {
               COALESCE(l.description, '') AS description,
               l.order_position,
               l.xp_reward,
+              COALESCE(l.is_ai_assisted, 0) AS is_ai_assisted,
               COALESCE(up.status, 'not_started') AS status,
               COALESCE(up.xp_earned, 0) AS xp_earned
        FROM lessons l
@@ -35,6 +36,7 @@ class LessonsRepository {
               COALESCE(l.content, '') AS content,
               l.order_position,
               l.xp_reward,
+              COALESCE(l.is_ai_assisted, 0) AS is_ai_assisted,
               COALESCE(up.status, 'not_started') AS status,
               COALESCE(up.xp_earned, 0) AS xp_earned
        FROM lessons l
@@ -58,6 +60,7 @@ class LessonsRepository {
               COALESCE(l.description, '') AS description,
               l.order_position,
               l.xp_reward,
+              COALESCE(l.is_ai_assisted, 0) AS is_ai_assisted,
               up.xp_earned,
               up.completed_at
        FROM user_progress up
