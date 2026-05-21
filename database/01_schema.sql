@@ -158,6 +158,7 @@ CREATE TABLE `lessons` (
     `order_position` INT UNSIGNED NOT NULL,
     `estimated_minutes` INT UNSIGNED DEFAULT 30,
     `is_published` BOOLEAN DEFAULT FALSE,
+    `is_ai_assisted` BOOLEAN DEFAULT FALSE COMMENT 'Contenido generado o publicado con asistencia de IA',
     `is_free_demo` BOOLEAN DEFAULT FALSE COMMENT 'Accesible sin auth',
     `xp_reward` INT UNSIGNED DEFAULT 50,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -168,6 +169,7 @@ CREATE TABLE `lessons` (
     UNIQUE KEY `unique_slug_path` (`learning_path_id`, `slug`),
     INDEX `idx_learning_path_id` (`learning_path_id`),
     INDEX `idx_is_published` (`is_published`),
+    INDEX `idx_is_ai_assisted` (`is_ai_assisted`),
     INDEX `idx_is_free_demo` (`is_free_demo`),
     INDEX `idx_order_position` (`order_position`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
