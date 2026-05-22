@@ -34,8 +34,10 @@ function mapUserPayload(user) {
     id: user.id,
     nombre: user.name,
     email: user.email,
+    createdAt: user.created_at || null,
     username: user.username || null,
     avatar: user.avatar_url || null,
+    bio: user.bio || null,
     countryCode: user.country_code || null,
     birthDate: formatSqlDate(user.birth_date),
     totalXp: Number(user.total_xp || 0),
@@ -346,7 +348,7 @@ class AuthService {
     return mapUserPayload(user)
   }
 
-  async updateProfile({ userId, nombre, email, username, avatar, countryCode, birthDate }) {
+  async updateProfile({ userId, nombre, email, username, avatar, countryCode, birthDate, bio }) {
     await this.schemaGuardService.assertReady()
 
     const currentUser = await this.userRepository.findById(userId)
@@ -368,6 +370,7 @@ class AuthService {
       avatarUrl: avatar,
       countryCode,
       birthDate,
+      bio,
       emailChanged,
     })
 
@@ -424,6 +427,10 @@ class AuthService {
         total_xp: target.total_xp || 0,
         current_level: target.current_level || 1,
         is_following: 1,
+        is_following_back: await this.userRepository.isFollowing({
+          followerId: target.id,
+          followingId: actorUserId,
+        }) ? 1 : 0,
       }),
       counts,
     }
@@ -460,6 +467,10 @@ class AuthService {
         total_xp: target.total_xp || 0,
         current_level: target.current_level || 1,
         is_following: 0,
+        is_following_back: await this.userRepository.isFollowing({
+          followerId: target.id,
+          followingId: actorUserId,
+        }) ? 1 : 0,
       }),
       counts,
     }
@@ -486,12 +497,51 @@ class AuthService {
     }
   }
 
-  async getPublicProfileByUsername({ actorUserId, username }) {
+  async getPublicFollowDirectoryByUsername({ actorUserId, username, limit }) {
     await this.schemaGuardService.assertReady()
 
     const actor = await this.userRepository.findById(actorUserId)
     if (!actor) {
       throw AppError.notFound('Usuario no encontrado.')
+    }
+
+    const target = await this.userRepository.findByUsername(username)
+    if (!target || !target.is_active || normalizeRole(target.role) !== 'user') {
+      throw AppError.notFound('Usuario no encontrado.', 'USER_NOT_FOUND')
+    }
+
+    const [following, followers, counts] = await Promise.all([
+      this.userRepository.listFollowing({ userId: target.id, actorUserId, limit }),
+      this.userRepository.listFollowers({ userId: target.id, actorUserId, limit }),
+      this.userRepository.getFollowCounts(target.id),
+    ])
+
+    return {
+      user: {
+        id: Number(target.id),
+        username: target.username || null,
+        nombre: target.name || null,
+      },
+      counts,
+      following: following.map((user) => mapSocialUserPayload({
+        ...user,
+        is_following: actorUserId === Number(target.id) ? 1 : user.is_following_back,
+      })),
+      followers: followers.map((user) => mapSocialUserPayload({
+        ...user,
+        is_following: user.is_following_back,
+      })),
+    }
+  }
+
+  async getPublicProfileByUsername({ actorUserId, username }) {
+    await this.schemaGuardService.assertReady()
+
+    if (actorUserId) {
+      const actor = await this.userRepository.findById(actorUserId)
+      if (!actor) {
+        throw AppError.notFound('Usuario no encontrado.')
+      }
     }
 
     const publicUser = await this.userRepository.getPublicUserProfileByUsername({
@@ -503,9 +553,10 @@ class AuthService {
       throw AppError.notFound('Usuario no encontrado.', 'USER_NOT_FOUND')
     }
 
-    const [detailsByUserId, counts] = await Promise.all([
+    const [detailsByUserId, counts, profileStats] = await Promise.all([
       this.userRepository.getLeaderboardUserDetails([publicUser.id]),
       this.userRepository.getFollowCounts(publicUser.id),
+      this.userRepository.getUserProfileStats(publicUser.id),
     ])
 
     const detail = detailsByUserId.get(Number(publicUser.id))
@@ -516,13 +567,20 @@ class AuthService {
         username: publicUser.username || null,
         nombre: publicUser.name || null,
         email: publicUser.email || null,
+        createdAt: publicUser.created_at || null,
+        bio: publicUser.bio || null,
         avatar: publicUser.avatar_url || null,
         countryCode: publicUser.country_code || null,
         birthDate: formatSqlDate(publicUser.birth_date),
         totalXp: Number(publicUser.total_xp || 0),
         currentLevel: Number(publicUser.current_level || 1),
-        lessonsCompleted: Number(publicUser.lessons_completed || 0),
+        lessonsCompleted: Number(profileStats.completedChallenges || publicUser.lessons_completed || 0),
+        solvedExercises: Number(profileStats.solvedExercises || 0),
+        activeDays: Number(profileStats.activeDays || 0),
+        bestRanking: profileStats.bestRanking || null,
+        currentRanking: profileStats.currentRank || null,
         isFollowing: Boolean(publicUser.is_following),
+        isFollowingBack: Boolean(publicUser.is_following_back),
         followers: Number(counts.followers || 0),
         following: Number(counts.following || 0),
         racha: resolveEffectiveStreak(detail),

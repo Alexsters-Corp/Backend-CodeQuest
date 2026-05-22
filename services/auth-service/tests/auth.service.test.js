@@ -36,12 +36,20 @@ describe('AuthService', () => {
       searchUsersByUsername: jest.fn(),
       followUser: jest.fn(),
       unfollowUser: jest.fn(),
+      isFollowing: jest.fn(),
       getFollowCounts: jest.fn(),
       listFollowing: jest.fn(),
       listFollowers: jest.fn(),
       getGlobalLeaderboard: jest.fn(),
       getFollowingLeaderboard: jest.fn(),
       getLeaderboardUserDetails: jest.fn().mockResolvedValue(new Map()),
+      getUserProfileStats: jest.fn().mockResolvedValue({
+        completedChallenges: 0,
+        solvedExercises: 0,
+        activeDays: 0,
+        currentRank: null,
+        bestRanking: null,
+      }),
       listUsers: jest.fn(),
       updateRoleAndStatus: jest.fn(),
       deleteUserById: jest.fn(),
@@ -387,10 +395,12 @@ describe('AuthService', () => {
       mockUserRepo.findById.mockResolvedValue(mockUser)
       mockUserRepo.findByUsername.mockResolvedValue({ ...mockUser, id: 2, username: 'target' })
       mockUserRepo.followUser.mockResolvedValue(true)
+      mockUserRepo.isFollowing.mockResolvedValue(true)
       mockUserRepo.getFollowCounts.mockResolvedValue({ following: 1, followers: 0 })
       const result = await authService.followUserByUsername({ actorUserId: 1, targetUsername: 'target' })
       expect(result.created).toBe(true)
       expect(result.user.isFollowing).toBe(true)
+      expect(result.user.isFollowingBack).toBe(true)
     })
 
     test('throws when following self', async () => {
@@ -415,10 +425,32 @@ describe('AuthService', () => {
       mockUserRepo.findById.mockResolvedValue(mockUser)
       mockUserRepo.findByUsername.mockResolvedValue({ ...mockUser, id: 2, username: 'target' })
       mockUserRepo.unfollowUser.mockResolvedValue(true)
+      mockUserRepo.isFollowing.mockResolvedValue(true)
       mockUserRepo.getFollowCounts.mockResolvedValue({ following: 0, followers: 0 })
       const result = await authService.unfollowUserByUsername({ actorUserId: 1, targetUsername: 'target' })
       expect(result.removed).toBe(true)
       expect(result.user.isFollowing).toBe(false)
+      expect(result.user.isFollowingBack).toBe(true)
+    })
+  })
+
+  describe('getPublicProfileByUsername', () => {
+    test('returns mutual follow state in public profile', async () => {
+      mockUserRepo.findById.mockResolvedValue(mockUser)
+      mockUserRepo.getPublicUserProfileByUsername = jest.fn().mockResolvedValue({
+        ...mockUser,
+        id: 2,
+        username: 'target',
+        is_following: 1,
+        is_following_back: 1,
+        lessons_completed: 5,
+      })
+      mockUserRepo.getFollowCounts.mockResolvedValue({ following: 3, followers: 4 })
+
+      const result = await authService.getPublicProfileByUsername({ actorUserId: 1, username: 'target' })
+
+      expect(result.user.isFollowing).toBe(true)
+      expect(result.user.isFollowingBack).toBe(true)
     })
   })
 

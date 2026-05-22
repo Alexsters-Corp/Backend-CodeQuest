@@ -65,10 +65,37 @@ const getPublicProfile = asyncHandler(async (req, res) => {
   return res.status(200).json(data)
 })
 
+const getSharedPublicProfile = asyncHandler(async (req, res) => {
+  const username = parseString(req.params.username, 'username', { minLength: 1 })
+  const data = await authService.getPublicProfileByUsername({
+    actorUserId: null,
+    username,
+  })
+
+  return res.status(200).json(data)
+})
+
+const getPublicFollowDirectory = asyncHandler(async (req, res) => {
+  const username = parseString(req.params.username, 'username', { minLength: 1 })
+  const limit = req.query.limit === undefined
+    ? undefined
+    : parsePositiveInt(req.query.limit, 'limit')
+
+  const data = await authService.getPublicFollowDirectoryByUsername({
+    actorUserId: req.user.id,
+    username,
+    limit,
+  })
+
+  return res.status(200).json(data)
+})
+
 module.exports = {
   searchUsers,
   followUser,
   unfollowUser,
   getFollowDirectory,
   getPublicProfile,
+  getSharedPublicProfile,
+  getPublicFollowDirectory,
 }
