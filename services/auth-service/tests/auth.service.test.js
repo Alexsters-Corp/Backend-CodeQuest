@@ -43,6 +43,13 @@ describe('AuthService', () => {
       getGlobalLeaderboard: jest.fn(),
       getFollowingLeaderboard: jest.fn(),
       getLeaderboardUserDetails: jest.fn().mockResolvedValue(new Map()),
+      getUserProfileStats: jest.fn().mockResolvedValue({
+        completedChallenges: 0,
+        solvedExercises: 0,
+        activeDays: 0,
+        currentRank: null,
+        bestRanking: null,
+      }),
       listUsers: jest.fn(),
       updateRoleAndStatus: jest.fn(),
       deleteUserById: jest.fn(),
