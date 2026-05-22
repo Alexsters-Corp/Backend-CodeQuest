@@ -7,9 +7,11 @@ const { env } = require('../config/env')
 const { groqContentService, groqEvaluationService, pool } = require('../services/container')
 
 const router = express.Router()
+const INSTRUCTOR_DAILY_PUBLISH_LIMIT = Number(process.env.AI_INSTRUCTOR_DAILY_PUBLISH_LIMIT || 12)
 
-// Judge0 language ID to language name mapping
-const JUDGE0_LANGUAGE_MAP = {
+// Accept both Judge0 IDs and internal programming language IDs.
+const LANGUAGE_MAP = {
+  // Judge0 IDs
   '63': 'javascript',
   '71': 'python',
   '62': 'java',
@@ -17,6 +19,36 @@ const JUDGE0_LANGUAGE_MAP = {
   '51': 'csharp',
   '60': 'go',
   '72': 'ruby',
+  // Internal programming_languages IDs
+  '1': 'python',
+  '2': 'javascript',
+  '3': 'java',
+  '4': 'cpp',
+  '5': 'csharp',
+  '6': 'go',
+  '7': 'ruby',
+}
+
+const LANGUAGE_TO_JUDGE0_ID = {
+  '63': 63,
+  '71': 71,
+  '62': 62,
+  '54': 54,
+  '51': 51,
+  '60': 60,
+  '72': 72,
+  '1': 71,
+  '2': 63,
+  '3': 62,
+  '4': 54,
+  '5': 51,
+  '6': 60,
+  '7': 72,
+}
+
+function resolveJudge0LanguageId(languageId) {
+  const resolved = LANGUAGE_TO_JUDGE0_ID[String(languageId)]
+  return Number.isInteger(resolved) ? resolved : null
 }
 
 function ensureAiEnabled(req, res, next) {
@@ -47,6 +79,102 @@ function sendError(res, error, fallbackCode = 'INTERNAL_ERROR', options = {}) {
   return res.status(status).json(payload)
 }
 
+async function assertInstructorPublishAccess({ userId, classId, learningPathId, languageId }) {
+  if (!Number.isInteger(classId) || classId <= 0) {
+    throw AppError.badRequest('classId es requerido para publicar como instructor.', 'VALIDATION_ERROR')
+  }
+
+  const [ownedClassRows] = await pool.query(
+    `SELECT id
+     FROM instructor_classes
+     WHERE id = ?
+       AND instructor_user_id = ?
+       AND is_active = 1
+     LIMIT 1`,
+    [classId, userId]
+  )
+
+  if (!ownedClassRows[0]) {
+    throw AppError.forbidden('No puedes publicar contenido para una clase que no te pertenece.', 'CLASS_FORBIDDEN')
+  }
+
+  const requestedJudge0LanguageId = resolveJudge0LanguageId(languageId)
+  let resolvedLearningPathId = Number.isInteger(learningPathId) && learningPathId > 0 ? learningPathId : null
+  let resolvedJudge0LanguageId = requestedJudge0LanguageId
+
+  if (resolvedLearningPathId) {
+    const [assignedPathRows] = await pool.query(
+      `SELECT clp.learning_path_id, pl.judge0_language_id
+       FROM class_learning_paths clp
+       JOIN learning_paths lp ON lp.id = clp.learning_path_id
+       JOIN programming_languages pl ON pl.id = lp.programming_language_id
+       WHERE clp.class_id = ?
+         AND clp.learning_path_id = ?
+       LIMIT 1`,
+      [classId, resolvedLearningPathId]
+    )
+
+    if (!assignedPathRows[0]) {
+      throw AppError.badRequest('La ruta seleccionada no está asignada a esta clase.', 'PATH_NOT_ASSIGNED_TO_CLASS')
+    }
+
+    resolvedJudge0LanguageId = Number(assignedPathRows[0].judge0_language_id) || resolvedJudge0LanguageId
+  } else {
+    const [classPathsRows] = await pool.query(
+      `SELECT clp.learning_path_id, clp.is_required, pl.judge0_language_id
+       FROM class_learning_paths clp
+       JOIN learning_paths lp ON lp.id = clp.learning_path_id
+       JOIN programming_languages pl ON pl.id = lp.programming_language_id
+       WHERE clp.class_id = ?
+       ORDER BY clp.is_required DESC, clp.id ASC`,
+      [classId]
+    )
+
+    if (!classPathsRows.length) {
+      // When no route is assigned to the class, allow direct publish and let the
+      // content service resolve/create a suitable path from language and level.
+      resolvedLearningPathId = null
+      resolvedJudge0LanguageId = requestedJudge0LanguageId
+    } else {
+      const selectedPath = requestedJudge0LanguageId
+        ? (classPathsRows.find((row) => Number(row.judge0_language_id) === requestedJudge0LanguageId) || classPathsRows[0])
+        : classPathsRows[0]
+
+      resolvedLearningPathId = Number(selectedPath.learning_path_id)
+      resolvedJudge0LanguageId = Number(selectedPath.judge0_language_id) || resolvedJudge0LanguageId
+    }
+  }
+
+  if (requestedJudge0LanguageId && requestedJudge0LanguageId !== resolvedJudge0LanguageId) {
+    throw AppError.badRequest(
+      'El lenguaje seleccionado no coincide con la ruta asignada a la clase.',
+      'LANGUAGE_ROUTE_MISMATCH'
+    )
+  }
+
+  const [dailyRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM ai_generated_content
+     WHERE created_by = ?
+       AND published = 1
+       AND DATE(generated_at) = CURRENT_DATE()`,
+    [userId]
+  )
+
+  const publishedToday = Number(dailyRows?.[0]?.total || 0)
+  if (publishedToday >= INSTRUCTOR_DAILY_PUBLISH_LIMIT) {
+    throw AppError.forbidden(
+      `Has alcanzado tu límite diario de publicaciones (${INSTRUCTOR_DAILY_PUBLISH_LIMIT}).`,
+      'INSTRUCTOR_DAILY_PUBLISH_LIMIT'
+    )
+  }
+
+  return {
+    learningPathId: resolvedLearningPathId,
+    languageId: resolvedJudge0LanguageId,
+  }
+}
+
 router.post(
   '/admin/generate-lesson',
   ensureAiEnabled,
@@ -65,7 +193,7 @@ router.post(
         throw AppError.badRequest('languageId debe ser un entero positivo.', 'VALIDATION_ERROR')
       }
 
-      const language = JUDGE0_LANGUAGE_MAP[String(languageId)]
+      const language = LANGUAGE_MAP[String(languageId)]
       if (!language) {
         throw AppError.badRequest('languageId no es válido.', 'VALIDATION_ERROR')
       }
@@ -126,7 +254,7 @@ router.post(
   '/admin/publish-content',
   ensureAiEnabled,
   requireGatewayUser,
-  authorize('admin'),
+  authorize('instructor', 'admin'),
   instructorAiLimit,
   async (req, res) => {
     try {
@@ -134,18 +262,34 @@ router.post(
       const languageId = Number(req.body.languageId)
       const level = parseString(req.body.level, 'level')
       const learningPathId = req.body.learningPathId ? Number(req.body.learningPathId) : null
+      const classId = req.body.classId ? Number(req.body.classId) : null
 
       if (!Number.isInteger(languageId) || languageId <= 0) {
         throw AppError.badRequest('languageId debe ser un entero positivo.', 'VALIDATION_ERROR')
       }
 
+      let effectiveLanguageId = languageId
+      let effectiveLearningPathId = learningPathId
+
+      if (req.user.role === 'instructor') {
+        const resolved = await assertInstructorPublishAccess({
+          userId: req.user.id,
+          classId,
+          learningPathId: effectiveLearningPathId,
+          languageId: effectiveLanguageId,
+        })
+        effectiveLearningPathId = resolved.learningPathId
+        effectiveLanguageId = resolved.languageId
+      }
+
       const payload = await groqContentService.publishGeneratedLesson({
         content: req.body.content,
-        languageId,
+        languageId: effectiveLanguageId,
         level,
         validation: req.body.validation,
         publishedBy: req.user.id,
-        learningPathId,
+        classId,
+        learningPathId: effectiveLearningPathId,
       })
 
       return res.status(201).json(payload)

@@ -78,6 +78,8 @@ class ClassManagementRepository {
               u.id AS instructor_user_id,
               COALESCE(u.name, u.email) AS instructor_name,
               u.email AS instructor_email,
+              COALESCE(cp.class_total_published_lessons, 0) AS class_total_published_lessons,
+              COALESCE(cp.class_completed_published_lessons, 0) AS class_completed_published_lessons,
               clp.learning_path_id,
               clp.is_required,
               clp.assigned_at,
@@ -85,13 +87,30 @@ class ClassManagementRepository {
               lp.difficulty_level,
               lp.programming_language_id,
               COUNT(DISTINCT l.id) AS total_lessons,
-              COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons
+              COALESCE(COUNT(DISTINCT CASE WHEN up.status = 'completed' THEN l.id END), 0) AS completed_lessons
        FROM class_students cs
        JOIN instructor_classes ic ON ic.id = cs.class_id
        JOIN users u ON u.id = ic.instructor_user_id
+       LEFT JOIN (
+         SELECT cs2.class_id,
+                COUNT(DISTINCT l2.id) AS class_total_published_lessons,
+                COUNT(DISTINCT CASE WHEN up2.status = 'completed' THEN l2.id END) AS class_completed_published_lessons
+         FROM class_students cs2
+         JOIN instructor_classes ic2 ON ic2.id = cs2.class_id
+         JOIN ai_generated_content agc2 ON agc2.class_id = ic2.id AND agc2.published = 1
+         JOIN lessons l2 ON l2.id = agc2.published_lesson_id AND l2.is_published = 1
+         LEFT JOIN user_progress up2 ON up2.lesson_id = l2.id AND up2.user_id = cs2.student_user_id
+         WHERE cs2.student_user_id = ?
+           AND cs2.status = 'active'
+           AND ic2.is_active = TRUE
+         GROUP BY cs2.class_id
+       ) cp ON cp.class_id = ic.id
        LEFT JOIN class_learning_paths clp ON clp.class_id = ic.id
        LEFT JOIN learning_paths lp ON lp.id = clp.learning_path_id
-       LEFT JOIN lessons l ON l.learning_path_id = clp.learning_path_id AND l.is_published = 1
+       LEFT JOIN ai_generated_content agc ON agc.class_id = ic.id AND agc.published = 1
+       LEFT JOIN lessons l ON l.id = agc.published_lesson_id
+         AND l.is_published = 1
+         AND (clp.learning_path_id IS NULL OR l.learning_path_id = clp.learning_path_id)
        LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = cs.student_user_id
        WHERE cs.student_user_id = ?
          AND cs.status = 'active'
@@ -104,6 +123,8 @@ class ClassManagementRepository {
                 u.id,
                 u.name,
                 u.email,
+                cp.class_total_published_lessons,
+                cp.class_completed_published_lessons,
                 clp.learning_path_id,
                 clp.is_required,
                 clp.assigned_at,
@@ -111,7 +132,41 @@ class ClassManagementRepository {
                 lp.difficulty_level,
                 lp.programming_language_id
        ORDER BY cs.joined_at DESC, clp.assigned_at DESC, clp.learning_path_id ASC`,
-      [studentUserId]
+      [studentUserId, studentUserId]
+    )
+
+    return rows
+  }
+
+  async listPublishedLessonsByStudentClass({ studentUserId, classId }) {
+    const [rows] = await this.pool.query(
+      `SELECT ic.id AS class_id,
+              ic.name AS class_name,
+              lp.id AS learning_path_id,
+              lp.name AS learning_path_name,
+              lp.difficulty_level,
+              lp.programming_language_id,
+              l.id AS lesson_id,
+              l.title AS lesson_title,
+              COALESCE(l.description, '') AS lesson_description,
+              l.order_position,
+              l.xp_reward,
+              l.is_ai_assisted,
+              up.status AS progress_status,
+              COALESCE(up.xp_earned, 0) AS xp_earned
+       FROM class_students cs
+       JOIN instructor_classes ic ON ic.id = cs.class_id
+       JOIN ai_generated_content agc ON agc.class_id = ic.id AND agc.published = 1
+       JOIN lessons l ON l.id = agc.published_lesson_id AND l.is_published = 1
+       JOIN learning_paths lp ON lp.id = l.learning_path_id
+       LEFT JOIN class_learning_paths clp ON clp.class_id = ic.id AND clp.learning_path_id = lp.id
+       LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = cs.student_user_id
+       WHERE cs.student_user_id = ?
+         AND cs.class_id = ?
+         AND cs.status = 'active'
+         AND ic.is_active = TRUE
+       ORDER BY agc.generated_at DESC, l.id DESC`,
+      [studentUserId, classId]
     )
 
     return rows
@@ -247,11 +302,11 @@ class ClassManagementRepository {
     const [summaryRows] = await this.pool.query(
       `SELECT
          COUNT(DISTINCT CASE WHEN cs.status = 'active' THEN cs.student_user_id END) AS students_total,
-         COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons_total,
-         COALESCE(COUNT(DISTINCT up.lesson_id), 0) AS lessons_started_total,
+         COALESCE(SUM(CASE WHEN up.status = 'completed' AND up.is_class_xp = 1 THEN 1 ELSE 0 END), 0) AS completed_lessons_total,
+         COALESCE(COUNT(DISTINCT CASE WHEN up.is_class_xp = 1 THEN up.lesson_id END), 0) AS lessons_started_total,
          COALESCE(ROUND(AVG(CASE
-           WHEN up.status = 'completed' THEN 100
-           WHEN up.status = 'in_progress' THEN 50
+           WHEN up.status = 'completed' AND up.is_class_xp = 1 THEN 100
+           WHEN up.status = 'in_progress' AND up.is_class_xp = 1 THEN 50
            ELSE 0
          END), 2), 0) AS progress_signal_avg
        FROM class_students cs
@@ -264,9 +319,10 @@ class ClassManagementRepository {
       `SELECT u.id,
               u.name,
               u.email,
-              COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons,
-              COALESCE(COUNT(DISTINCT up.lesson_id), 0) AS started_lessons,
-              COALESCE(SUM(up.xp_earned), 0) AS earned_xp
+              COALESCE(SUM(CASE WHEN up.status = 'completed' AND up.is_class_xp = 1 THEN 1 ELSE 0 END), 0) AS completed_lessons,
+              COALESCE(COUNT(DISTINCT CASE WHEN up.is_class_xp = 1 THEN up.lesson_id END), 0) AS started_lessons,
+              COALESCE(SUM(CASE WHEN up.is_class_xp = 1 THEN up.xp_earned ELSE 0 END), 0) AS earned_xp,
+              MAX(up.updated_at) AS last_activity_at
        FROM class_students cs
        JOIN users u ON u.id = cs.student_user_id
        LEFT JOIN user_progress up ON up.user_id = cs.student_user_id
@@ -278,6 +334,18 @@ class ClassManagementRepository {
       [classId]
     )
 
+    const [pathsRows] = await this.pool.query(
+      `SELECT clp.id,
+              lp.name,
+              clp.is_required,
+              clp.learning_path_id,
+              lp.programming_language_id AS language_id
+       FROM class_learning_paths clp
+       JOIN learning_paths lp ON lp.id = clp.learning_path_id
+       WHERE clp.class_id = ?`,
+      [classId]
+    )
+
     return {
       summary: summaryRows[0] || {
         students_total: 0,
@@ -286,6 +354,7 @@ class ClassManagementRepository {
         progress_signal_avg: 0,
       },
       students: studentsRows,
+      assigned_paths: pathsRows,
     }
   }
 

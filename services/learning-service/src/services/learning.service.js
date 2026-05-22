@@ -1248,6 +1248,12 @@ class LearningService {
     rows.forEach((row) => {
       const classId = Number(row.class_id)
       if (!classesMap.has(classId)) {
+        const classTotalLessons = Number(row.class_total_published_lessons || 0)
+        const classCompletedLessons = Number(row.class_completed_published_lessons || 0)
+        const classCompletionPercentage = classTotalLessons > 0
+          ? toRoundedNumber((classCompletedLessons / classTotalLessons) * 100, 2)
+          : 0
+
         classesMap.set(classId, {
           id: classId,
           name: row.class_name,
@@ -1258,6 +1264,11 @@ class LearningService {
             id: Number(row.instructor_user_id),
             name: row.instructor_name,
             email: row.instructor_email,
+          },
+          progress: {
+            total_lessons: classTotalLessons,
+            completed_lessons: classCompletedLessons,
+            completion_percentage: classCompletionPercentage,
           },
           assigned_paths_total: 0,
           assigned_paths: [],
@@ -1295,6 +1306,59 @@ class LearningService {
 
     return {
       classes: Array.from(classesMap.values()),
+    }
+  }
+
+  async listStudentClassLessons({ studentUserId, classId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    await this.schemaGuardService.assertGroup('lessons')
+
+    const isEnrolled = await this.classManagementRepository.isStudentEnrolled(classId, studentUserId)
+    if (!isEnrolled) {
+      throw AppError.forbidden('No perteneces a esta clase.')
+    }
+
+    const rows = await this.classManagementRepository.listPublishedLessonsByStudentClass({
+      studentUserId,
+      classId,
+    })
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return {
+        class: {
+          id: Number(classId),
+          name: null,
+        },
+        lessons: [],
+      }
+    }
+
+    const className = rows[0]?.class_name || null
+    const lessons = rows
+      .filter((row) => Number(row.lesson_id) > 0)
+      .map((row) => ({
+        id: Number(row.lesson_id),
+        title: row.lesson_title,
+        description: row.lesson_description,
+        order_position: Number(row.order_position || 0),
+        xp_reward: Number(row.xp_reward || 0),
+        is_ai_assisted: Boolean(row.is_ai_assisted),
+        status: row.progress_status || 'available',
+        xp_earned: Number(row.xp_earned || 0),
+        learning_path: {
+          id: Number(row.learning_path_id || 0) || null,
+          name: row.learning_path_name || null,
+          difficulty_level: row.difficulty_level || null,
+          programming_language_id: Number(row.programming_language_id || 0) || null,
+        },
+      }))
+
+    return {
+      class: {
+        id: Number(classId),
+        name: className,
+      },
+      lessons,
     }
   }
 
@@ -1568,6 +1632,15 @@ class LearningService {
         started_lessons: Number(row.started_lessons || 0),
         earned_xp: Number(row.earned_xp || 0),
       })),
+      assigned_paths: Array.isArray(analytics.assigned_paths)
+        ? analytics.assigned_paths.map((row) => ({
+          id: Number(row.id),
+          learning_path_id: Number(row.learning_path_id),
+          name: row.name,
+          is_required: Boolean(row.is_required),
+          language_id: Number(row.language_id || row.programming_language_id || 0) || null,
+        }))
+        : [],
     }
   }
 
