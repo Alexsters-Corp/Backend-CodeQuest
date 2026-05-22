@@ -14,7 +14,7 @@ const {
 	listCompletedLessons,
 	submitSolution,
 } = require('../controllers/lessons.controller')
-const { getOverview, completeLesson, joinClass } = require('../controllers/progress.controller')
+const { getOverview, completeLesson, joinClass, listStudentClasses } = require('../controllers/progress.controller')
 const { getLessonSolution } = require('../controllers/solutions.controller')
 const { executeCode } = require('../controllers/execution.controller')
 const { listPathFavorites, togglePathFavorite, listLessonFavorites, toggleLessonFavorite } = require('../controllers/favorites.controller')
@@ -56,6 +56,7 @@ router.post(
 router.get('/progress/overview', featureFlagGuard('progress'), requireGatewayUser, getOverview)
 router.post('/progress/lessons/:lessonId/complete', featureFlagGuard('progress'), requireGatewayUser, completeLesson)
 router.post('/progress/join-class', featureFlagGuard('progress'), requireGatewayUser, joinClass)
+router.get('/progress/classes', featureFlagGuard('progress'), requireGatewayUser, listStudentClasses)
 
 router.get('/favorites/paths', featureFlagGuard('favorites'), requireGatewayUser, listPathFavorites)
 router.post('/favorites/paths/:pathId/toggle', featureFlagGuard('favorites'), requireGatewayUser, togglePathFavorite)
