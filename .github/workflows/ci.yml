@@ -3,6 +3,8 @@ name: CI Backend
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   install:
@@ -25,3 +27,15 @@ jobs:
           node --check services/auth-service/src/server.js
           node --check services/learning-service/src/server.js
           node --check services/api-gateway/src/server.js
+
+      - name: Run auth-service tests
+        run: npm run test -w @codequest/auth-service
+
+      - name: Run learning-service tests
+        run: npm run test -w @codequest/learning-service
+
+      - name: Run api-gateway tests
+        run: npm run test -w @codequest/api-gateway
+
+      - name: Run ai-service tests
+        run: npm run test -w @codequest/ai-service
