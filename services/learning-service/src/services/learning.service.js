@@ -1248,6 +1248,12 @@ class LearningService {
     rows.forEach((row) => {
       const classId = Number(row.class_id)
       if (!classesMap.has(classId)) {
+        const classTotalLessons = Number(row.class_total_published_lessons || 0)
+        const classCompletedLessons = Number(row.class_completed_published_lessons || 0)
+        const classCompletionPercentage = classTotalLessons > 0
+          ? toRoundedNumber((classCompletedLessons / classTotalLessons) * 100, 2)
+          : 0
+
         classesMap.set(classId, {
           id: classId,
           name: row.class_name,
@@ -1258,6 +1264,11 @@ class LearningService {
             id: Number(row.instructor_user_id),
             name: row.instructor_name,
             email: row.instructor_email,
+          },
+          progress: {
+            total_lessons: classTotalLessons,
+            completed_lessons: classCompletedLessons,
+            completion_percentage: classCompletionPercentage,
           },
           assigned_paths_total: 0,
           assigned_paths: [],

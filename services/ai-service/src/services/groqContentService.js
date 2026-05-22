@@ -199,8 +199,37 @@ function normalizeQualityScore(value) {
   return numeric > 1 ? Math.min(numeric / 100, 1) : Math.min(Math.max(numeric, 0), 1)
 }
 
+function parseUserProvidedJson(rawValue) {
+  const source = String(rawValue || '').trim()
+  if (!source) {
+    throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+  }
+
+  const normalized = source
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+
+  try {
+    return JSON.parse(normalized)
+  } catch (_error) {
+    const firstBrace = normalized.indexOf('{')
+    const lastBrace = normalized.lastIndexOf('}')
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const candidate = normalized.slice(firstBrace, lastBrace + 1)
+      try {
+        return JSON.parse(candidate)
+      } catch (_innerError) {
+        throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+      }
+    }
+
+    throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+  }
+}
+
 function normalizeLessonContent(rawContent) {
-  const content = typeof rawContent === 'string' ? parseJsonPayload(rawContent, 'Contenido invalido para publicar.') : rawContent
+  const content = typeof rawContent === 'string' ? parseUserProvidedJson(rawContent) : rawContent
   if (!content || typeof content !== 'object') {
     throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
   }

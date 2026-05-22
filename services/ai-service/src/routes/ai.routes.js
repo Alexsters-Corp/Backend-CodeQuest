@@ -131,15 +131,18 @@ async function assertInstructorPublishAccess({ userId, classId, learningPathId, 
     )
 
     if (!classPathsRows.length) {
-      throw AppError.badRequest('La clase no tiene rutas asignadas para publicar.', 'CLASS_WITHOUT_ASSIGNED_PATHS')
+      // When no route is assigned to the class, allow direct publish and let the
+      // content service resolve/create a suitable path from language and level.
+      resolvedLearningPathId = null
+      resolvedJudge0LanguageId = requestedJudge0LanguageId
+    } else {
+      const selectedPath = requestedJudge0LanguageId
+        ? (classPathsRows.find((row) => Number(row.judge0_language_id) === requestedJudge0LanguageId) || classPathsRows[0])
+        : classPathsRows[0]
+
+      resolvedLearningPathId = Number(selectedPath.learning_path_id)
+      resolvedJudge0LanguageId = Number(selectedPath.judge0_language_id) || resolvedJudge0LanguageId
     }
-
-    const selectedPath = requestedJudge0LanguageId
-      ? (classPathsRows.find((row) => Number(row.judge0_language_id) === requestedJudge0LanguageId) || classPathsRows[0])
-      : classPathsRows[0]
-
-    resolvedLearningPathId = Number(selectedPath.learning_path_id)
-    resolvedJudge0LanguageId = Number(selectedPath.judge0_language_id) || resolvedJudge0LanguageId
   }
 
   if (requestedJudge0LanguageId && requestedJudge0LanguageId !== resolvedJudge0LanguageId) {
