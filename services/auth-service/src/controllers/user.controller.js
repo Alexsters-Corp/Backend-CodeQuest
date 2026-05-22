@@ -57,6 +57,7 @@ const updateProfile = asyncHandler(async (req, res) => {
     email: parseString(req.body.email, 'email').toLowerCase(),
     username: parseOptionalString(req.body.username, 'username', { minLength: 3 }),
     avatar: parseOptionalString(req.body.avatar, 'avatar', { minLength: 1 }),
+    bio: parseOptionalString(req.body.bio, 'bio', { maxLength: 280 }),
     countryCode: (() => {
       const value = parseOptionalString(req.body.countryCode, 'countryCode')
       if (!value) {

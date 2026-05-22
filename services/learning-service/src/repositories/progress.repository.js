@@ -142,15 +142,16 @@ class ProgressRepository {
   }
 
   async getRecentXP(userId) {
-    // Obtenemos los últimos 7 días de actividad
+    // Obtenemos los últimos 7 días de XP ganado desde submissions,
+    // incluyendo repeticiones y nuevos intentos del usuario.
     const [rows] = await this.pool.query(
       `SELECT
-         DATE_FORMAT(completed_at, '%Y-%m-%d') AS dia,
-         COALESCE(SUM(xp_earned), 0) AS xp
-       FROM user_progress
+         DATE_FORMAT(created_at, '%Y-%m-%d') AS dia,
+         COALESCE(SUM(points_earned), 0) AS xp
+       FROM user_submissions
        WHERE user_id = ?
-         AND completed_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
-       GROUP BY DATE(completed_at)
+         AND created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+       GROUP BY DATE(created_at)
        ORDER BY dia ASC`,
       [userId]
     )
@@ -172,6 +173,117 @@ class ProgressRepository {
       dia,
       xp: xpMap.get(dia) || 0,
     }))
+  }
+
+  async getSolvedExercisesCount(userId) {
+    const [rows] = await this.pool.query(
+      `SELECT COUNT(*) AS total
+       FROM user_submissions
+       WHERE user_id = ?
+         AND status = 'accepted'`,
+      [userId]
+    )
+
+    return Number(rows[0]?.total || 0)
+  }
+
+  async getActiveDaysCount(userId) {
+    const [rows] = await this.pool.query(
+      `SELECT COUNT(*) AS total
+       FROM (
+         SELECT DISTINCT DATE(activity_date) AS activity_day
+         FROM (
+           SELECT completed_at AS activity_date
+           FROM user_progress
+           WHERE user_id = ?
+             AND completed_at IS NOT NULL
+
+           UNION
+
+           SELECT started_at AS activity_date
+           FROM user_progress
+           WHERE user_id = ?
+             AND started_at IS NOT NULL
+
+           UNION
+
+           SELECT created_at AS activity_date
+           FROM user_submissions
+           WHERE user_id = ?
+         ) AS activity_log
+       ) AS distinct_days`,
+      [userId, userId, userId]
+    )
+
+    return Number(rows[0]?.total || 0)
+  }
+
+  async getRankingStats(userId) {
+    const [rankRows] = await this.pool.query(
+      `SELECT ranked.rank_position
+       FROM (
+         SELECT u.id,
+                ROW_NUMBER() OVER (
+                  ORDER BY COALESCE(us.total_xp, 0) DESC,
+                           COALESCE(us.current_level, 1) DESC,
+                           u.id ASC
+                ) AS rank_position
+         FROM users u
+         LEFT JOIN user_stats us ON us.user_id = u.id
+         WHERE u.is_active = 1
+           AND u.role = 'user'
+           AND u.username IS NOT NULL
+           AND u.username <> ''
+       ) AS ranked
+       WHERE ranked.id = ?
+       LIMIT 1`,
+      [userId]
+    )
+
+    const currentRank = rankRows[0]?.rank_position ? Number(rankRows[0].rank_position) : null
+
+    const [bestRows] = await this.pool.query(
+      `SELECT best_rank_position
+       FROM user_stats
+       WHERE user_id = ?
+       LIMIT 1`,
+      [userId]
+    )
+
+    const persistedBestRank = bestRows[0]?.best_rank_position
+      ? Number(bestRows[0].best_rank_position)
+      : null
+
+    if (currentRank && (!persistedBestRank || currentRank < persistedBestRank)) {
+      await this.pool.query(
+        `UPDATE user_stats
+         SET rank_position = ?,
+             best_rank_position = ?,
+             updated_at = NOW()
+         WHERE user_id = ?`,
+        [currentRank, currentRank, userId]
+      )
+
+      return {
+        currentRank,
+        bestRank: currentRank,
+      }
+    }
+
+    if (currentRank) {
+      await this.pool.query(
+        `UPDATE user_stats
+         SET rank_position = ?,
+             updated_at = NOW()
+         WHERE user_id = ?`,
+        [currentRank, userId]
+      )
+    }
+
+    return {
+      currentRank,
+      bestRank: persistedBestRank,
+    }
   }
 
   // Actualiza la racha del usuario al completar una lección.

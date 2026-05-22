@@ -13,6 +13,7 @@ class UserRepository {
       `SELECT id,
               name,
               email,
+              created_at,
               password_hash,
               role,
               is_active,
@@ -35,6 +36,7 @@ class UserRepository {
       `SELECT u.id,
               u.name,
               u.email,
+              u.created_at,
               u.role,
               u.is_active,
               ${profileSelect},
@@ -65,6 +67,7 @@ class UserRepository {
       `SELECT id,
               name,
               email,
+              created_at,
               role,
               is_active,
               ${profileSelect},
@@ -117,7 +120,7 @@ class UserRepository {
     )
   }
 
-  async updateProfileById(userId, { name, email, username, avatarUrl, countryCode, birthDate, emailChanged }) {
+  async updateProfileById(userId, { name, email, username, avatarUrl, countryCode, birthDate, bio, emailChanged }) {
     const profileColumns = await this.#resolveProfileColumns()
     const verifiedColumn = await this.#resolveVerifiedColumn()
     const updates = ['name = ?', 'email = ?']
@@ -141,6 +144,11 @@ class UserRepository {
     if (profileColumns.birth_date) {
       updates.push('birth_date = ?')
       params.push(birthDate)
+    }
+
+    if (profileColumns.bio) {
+      updates.push('bio = ?')
+      params.push(bio)
     }
 
     if (emailChanged) {
@@ -265,7 +273,17 @@ class UserRepository {
                     AND uf.following_id = u.id
                 ) THEN 1
                 ELSE 0
-              END AS is_following
+              END AS is_following,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows back
+                  WHERE back.follower_id = u.id
+                    AND back.following_id = ?
+                ) THEN 1
+                ELSE 0
+              END AS is_following_back
        FROM users u
        LEFT JOIN user_stats us ON us.user_id = u.id
        WHERE u.username IS NOT NULL
@@ -277,7 +295,17 @@ class UserRepository {
                 us.total_xp DESC,
                 u.username ASC
        LIMIT ?`,
-      [excludeUserId, excludeUserId, excludeUserId, excludeUserId, `%${normalizedQuery}%`, normalizedQuery, safeLimit]
+      [
+        excludeUserId,
+        excludeUserId,
+        excludeUserId,
+        excludeUserId,
+        excludeUserId,
+        excludeUserId,
+        `%${normalizedQuery}%`,
+        normalizedQuery,
+        safeLimit,
+      ]
     )
 
     return rows
@@ -339,7 +367,7 @@ class UserRepository {
     }
   }
 
-  async listFollowing({ userId, limit = 50 }) {
+  async listFollowing({ userId, actorUserId = userId, limit = 50 }) {
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50))
     const [rows] = await this.pool.query(
       `SELECT u.id,
@@ -349,20 +377,29 @@ class UserRepository {
               u.country_code,
               COALESCE(us.total_xp, 0) AS total_xp,
               COALESCE(us.current_level, 1) AS current_level,
-              uf.created_at AS followed_at
+              uf.created_at AS followed_at,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows back
+                  WHERE back.follower_id = u.id
+                    AND back.following_id = ?
+                ) THEN 1
+                ELSE 0
+              END AS is_following_back
        FROM user_follows uf
        JOIN users u ON u.id = uf.following_id
        LEFT JOIN user_stats us ON us.user_id = u.id
        WHERE uf.follower_id = ?
        ORDER BY uf.created_at DESC
        LIMIT ?`,
-      [userId, safeLimit]
+      [actorUserId, userId, safeLimit]
     )
 
     return rows
   }
 
-  async listFollowers({ userId, limit = 50 }) {
+  async listFollowers({ userId, actorUserId = userId, limit = 50 }) {
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50))
     const [rows] = await this.pool.query(
       `SELECT u.id,
@@ -388,7 +425,7 @@ class UserRepository {
        WHERE uf.following_id = ?
        ORDER BY uf.created_at DESC
        LIMIT ?`,
-      [userId, userId, safeLimit]
+      [actorUserId, userId, safeLimit]
     )
 
     return rows
@@ -559,6 +596,114 @@ class UserRepository {
     return detailsByUserId
   }
 
+  async getUserProfileStats(userId) {
+    const [lessonRows, solvedRows, activeRows, rankRows, bestRows] = await Promise.all([
+      this.pool.query(
+        `SELECT COALESCE(us.lessons_completed, 0) AS total
+         FROM user_stats us
+         WHERE us.user_id = ?
+         LIMIT 1`,
+        [userId]
+      ),
+      this.pool.query(
+        `SELECT COUNT(*) AS total
+         FROM user_submissions
+         WHERE user_id = ?
+           AND status = 'accepted'`,
+        [userId]
+      ),
+      this.pool.query(
+        `SELECT COUNT(*) AS total
+         FROM (
+           SELECT DISTINCT DATE(activity_date) AS activity_day
+           FROM (
+             SELECT completed_at AS activity_date
+             FROM user_progress
+             WHERE user_id = ?
+               AND completed_at IS NOT NULL
+
+             UNION
+
+             SELECT started_at AS activity_date
+             FROM user_progress
+             WHERE user_id = ?
+               AND started_at IS NOT NULL
+
+             UNION
+
+             SELECT created_at AS activity_date
+             FROM user_submissions
+             WHERE user_id = ?
+           ) AS activity_log
+         ) AS distinct_days`,
+        [userId, userId, userId]
+      ),
+      this.pool.query(
+        `SELECT ranked.rank_position
+         FROM (
+           SELECT u.id,
+                  ROW_NUMBER() OVER (
+                    ORDER BY COALESCE(us.total_xp, 0) DESC,
+                             COALESCE(us.current_level, 1) DESC,
+                             u.id ASC
+                  ) AS rank_position
+           FROM users u
+           LEFT JOIN user_stats us ON us.user_id = u.id
+           WHERE u.is_active = 1
+             AND u.role = 'user'
+             AND u.username IS NOT NULL
+             AND u.username <> ''
+         ) AS ranked
+         WHERE ranked.id = ?
+         LIMIT 1`,
+        [userId]
+      ),
+      this.pool.query(
+        `SELECT best_rank_position
+         FROM user_stats
+         WHERE user_id = ?
+         LIMIT 1`,
+        [userId]
+      ),
+    ])
+
+    const currentRank = rankRows[0]?.[0]?.rank_position
+      ? Number(rankRows[0][0].rank_position)
+      : null
+    const persistedBestRank = bestRows[0]?.[0]?.best_rank_position
+      ? Number(bestRows[0][0].best_rank_position)
+      : null
+
+    if (currentRank && (!persistedBestRank || currentRank < persistedBestRank)) {
+      await this.pool.query(
+        `UPDATE user_stats
+         SET rank_position = ?,
+             best_rank_position = ?,
+             updated_at = NOW()
+         WHERE user_id = ?`,
+        [currentRank, currentRank, userId]
+      )
+    } else if (currentRank) {
+      await this.pool.query(
+        `UPDATE user_stats
+         SET rank_position = ?,
+             updated_at = NOW()
+         WHERE user_id = ?`,
+        [currentRank, userId]
+      )
+    }
+
+    return {
+      completedChallenges: Number(lessonRows[0]?.[0]?.total || 0),
+      solvedExercises: Number(solvedRows[0]?.[0]?.total || 0),
+      activeDays: Number(activeRows[0]?.[0]?.total || 0),
+      currentRank,
+      bestRanking: currentRank && (!persistedBestRank || currentRank < persistedBestRank)
+        ? currentRank
+        : persistedBestRank,
+    }
+  }
+
   async getPublicUserProfileByUsername({ actorUserId = null, username }) {
     const normalizedUsername = String(username || '').trim()
     if (!normalizedUsername) {
@@ -570,6 +715,8 @@ class UserRepository {
               u.name,
               u.username,
               u.email,
+              u.created_at,
+              u.bio,
               u.avatar_url,
               u.country_code,
               u.birth_date,
@@ -585,14 +732,24 @@ class UserRepository {
                     AND uf.following_id = u.id
                 ) THEN 1
                 ELSE 0
-              END AS is_following
+              END AS is_following,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows back
+                  WHERE back.follower_id = u.id
+                    AND back.following_id = ?
+                ) THEN 1
+                ELSE 0
+              END AS is_following_back
        FROM users u
        LEFT JOIN user_stats us ON us.user_id = u.id
        WHERE LOWER(u.username) = LOWER(?)
          AND u.is_active = 1
          AND u.role = 'user'
        LIMIT 1`,
-      [actorUserId, actorUserId, normalizedUsername]
+      [actorUserId, actorUserId, actorUserId, actorUserId, normalizedUsername]
     )
 
     return rows[0] || null
@@ -638,6 +795,7 @@ class UserRepository {
       ['avatar_url', profileColumns.avatar_url],
       ['country_code', profileColumns.country_code],
       ['birth_date', profileColumns.birth_date],
+      ['bio', profileColumns.bio],
     ]
 
     return candidates
@@ -662,7 +820,7 @@ class UserRepository {
        FROM information_schema.columns
        WHERE table_schema = DATABASE()
          AND table_name = 'users'
-         AND column_name IN ('username', 'avatar_url', 'country_code', 'birth_date')`
+         AND column_name IN ('username', 'avatar_url', 'country_code', 'birth_date', 'bio')`
     )
 
     const columns = new Set(rows.map((row) => row.column_name || row.COLUMN_NAME))
@@ -672,6 +830,7 @@ class UserRepository {
       avatar_url: columns.has('avatar_url'),
       country_code: columns.has('country_code'),
       birth_date: columns.has('birth_date'),
+      bio: columns.has('bio'),
     }
   }
 

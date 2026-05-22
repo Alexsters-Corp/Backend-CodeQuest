@@ -744,12 +744,24 @@ class LearningService {
     await this.schemaGuardService.assertGroup('base')
     await this.schemaGuardService.assertGroup('diagnostic')
 
-    const [progress, streak, selectedLanguages, latestAttempts, recentXP] = await Promise.all([
+    const [
+      progress,
+      streak,
+      selectedLanguages,
+      latestAttempts,
+      recentXP,
+      solvedExercises,
+      activeDays,
+      rankingStats,
+    ] = await Promise.all([
       this.getProgressOverview(userId),
       this.progressRepository.getStreakOverview(userId),
       this.pathsRepository.listUserSelectedLanguages(userId),
       this.diagnosticRepository.listLatestAttemptsByUser(userId),
       this.progressRepository.getRecentXP(userId),
+      this.progressRepository.getSolvedExercisesCount(userId),
+      this.progressRepository.getActiveDaysCount(userId),
+      this.progressRepository.getRankingStats(userId),
     ])
 
     const attemptsByLanguage = new Map(
@@ -837,6 +849,11 @@ class LearningService {
       racha: effectiveStreak,
       rachaMaxima: Number(streak.streak_longest || 0),
       streakActiveToday,
+      completedChallenges: Number(progress.completed_lessons || 0),
+      solvedExercises: Number(solvedExercises || 0),
+      activeDays: Number(activeDays || 0),
+      bestRanking: rankingStats?.bestRank || null,
+      currentRanking: rankingStats?.currentRank || null,
       languages,
       achievements: [],
       recentXP,
