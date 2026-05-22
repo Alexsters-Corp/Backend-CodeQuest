@@ -422,20 +422,26 @@ class LearningService {
       throw AppError.notFound('Lección no encontrada.')
     }
 
+    const isClassXp = await this.classManagementRepository.isPathAssignedToStudentClasses(userId, lesson.learning_path_id)
+
     await this.progressRepository.markLessonCompleted({
       userId,
       lessonId,
       xpReward: lesson.xp_reward,
+      isClassXp,
     })
 
-    await this.progressRepository.addXpToStats({
-      userId,
-      xp: lesson.xp_reward,
-    })
+    if (!isClassXp) {
+      await this.progressRepository.addXpToStats({
+        userId,
+        xp: lesson.xp_reward,
+      })
+    }
 
     return {
       lesson_id: lessonId,
       status: 'completed',
+      isClassXp,
     }
   }
 
@@ -1244,6 +1250,135 @@ class LearningService {
     }
   }
 
+  async listStudentClasses({ studentUserId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    await this.schemaGuardService.assertGroup('lessons')
+
+    const rows = await this.classManagementRepository.listClassesByStudent(studentUserId)
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { classes: [] }
+    }
+
+    const classesMap = new Map()
+
+    rows.forEach((row) => {
+      const classId = Number(row.class_id)
+      if (!classesMap.has(classId)) {
+        const classTotalLessons = Number(row.class_total_published_lessons || 0)
+        const classCompletedLessons = Number(row.class_completed_published_lessons || 0)
+        const classCompletionPercentage = classTotalLessons > 0
+          ? toRoundedNumber((classCompletedLessons / classTotalLessons) * 100, 2)
+          : 0
+
+        classesMap.set(classId, {
+          id: classId,
+          name: row.class_name,
+          description: row.class_description,
+          created_at: row.class_created_at,
+          joined_at: row.joined_at,
+          instructor: {
+            id: Number(row.instructor_user_id),
+            name: row.instructor_name,
+            email: row.instructor_email,
+          },
+          progress: {
+            total_lessons: classTotalLessons,
+            completed_lessons: classCompletedLessons,
+            completion_percentage: classCompletionPercentage,
+          },
+          assigned_paths_total: 0,
+          assigned_paths: [],
+        })
+      }
+
+      const klass = classesMap.get(classId)
+      const pathId = Number(row.learning_path_id)
+      if (!pathId) {
+        return
+      }
+
+      const totalLessons = Number(row.total_lessons || 0)
+      const completedLessons = Number(row.completed_lessons || 0)
+      const progressPercentage = totalLessons > 0
+        ? toRoundedNumber((completedLessons / totalLessons) * 100, 2)
+        : 0
+
+      klass.assigned_paths.push({
+        id: pathId,
+        name: row.learning_path_name,
+        difficulty_level: row.difficulty_level,
+        programming_language_id: Number(row.programming_language_id || 0),
+        is_required: Boolean(row.is_required),
+        assigned_at: row.assigned_at,
+        progress: {
+          total_lessons: totalLessons,
+          completed_lessons: completedLessons,
+          completion_percentage: progressPercentage,
+        },
+      })
+
+      klass.assigned_paths_total = klass.assigned_paths.length
+    })
+
+    return {
+      classes: Array.from(classesMap.values()),
+    }
+  }
+
+  async listStudentClassLessons({ studentUserId, classId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    await this.schemaGuardService.assertGroup('lessons')
+
+    const isEnrolled = await this.classManagementRepository.isStudentEnrolled(classId, studentUserId)
+    if (!isEnrolled) {
+      throw AppError.forbidden('No perteneces a esta clase.')
+    }
+
+    const rows = await this.classManagementRepository.listPublishedLessonsByStudentClass({
+      studentUserId,
+      classId,
+    })
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return {
+        class: {
+          id: Number(classId),
+          name: null,
+        },
+        lessons: [],
+      }
+    }
+
+    const className = rows[0]?.class_name || null
+    const lessons = rows
+      .filter((row) => Number(row.lesson_id) > 0)
+      .map((row) => ({
+        id: Number(row.lesson_id),
+        title: row.lesson_title,
+        description: row.lesson_description,
+        order_position: Number(row.order_position || 0),
+        xp_reward: Number(row.xp_reward || 0),
+        is_ai_assisted: Boolean(row.is_ai_assisted),
+        status: row.progress_status || 'available',
+        xp_earned: Number(row.xp_earned || 0),
+        learning_path: {
+          id: Number(row.learning_path_id || 0) || null,
+          name: row.learning_path_name || null,
+          difficulty_level: row.difficulty_level || null,
+          programming_language_id: Number(row.programming_language_id || 0) || null,
+        },
+      }))
+
+    return {
+      class: {
+        id: Number(classId),
+        name: className,
+      },
+      lessons,
+    }
+  }
+
   async revokeInviteCode({ actorUserId, actorRole, inviteId }) {
     await this.schemaGuardService.assertGroup('rbac_instructor')
 
@@ -1514,6 +1649,15 @@ class LearningService {
         started_lessons: Number(row.started_lessons || 0),
         earned_xp: Number(row.earned_xp || 0),
       })),
+      assigned_paths: Array.isArray(analytics.assigned_paths)
+        ? analytics.assigned_paths.map((row) => ({
+          id: Number(row.id),
+          learning_path_id: Number(row.learning_path_id),
+          name: row.name,
+          is_required: Boolean(row.is_required),
+          language_id: Number(row.language_id || row.programming_language_id || 0) || null,
+        }))
+        : [],
     }
   }
 
@@ -1635,8 +1779,12 @@ class LearningService {
       pointsEarned: xpEarned,
     })
 
-    // --- Sumar XP al acumulado del usuario ---
-    await this.progressRepository.addXpToStats({ userId, xp: xpEarned })
+    const isClassXp = await this.classManagementRepository.isPathAssignedToStudentClasses(userId, lesson.learning_path_id)
+
+    // --- Sumar XP al acumulado del usuario solo si NO es de clase ---
+    if (!isClassXp) {
+      await this.progressRepository.addXpToStats({ userId, xp: xpEarned })
+    }
 
     // --- Marcar lección como completada si fue la primera vez con todos correctos ---
     if (!isRetryAttempt && allCorrect) {
@@ -1644,6 +1792,16 @@ class LearningService {
         userId,
         lessonId,
         xpReward,
+        isClassXp,
+      })
+    } else {
+      // Si no es completada (ej: retry o incompleta), igual actualizamos el progreso parcial
+      await this.progressRepository.upsertProgressIfBetter({
+        userId,
+        lessonId,
+        newXp: xpEarned,
+        newStatus: allCorrect ? 'completed' : 'in_progress',
+        isClassXp,
       })
     }
 

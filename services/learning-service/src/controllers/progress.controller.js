@@ -26,8 +26,29 @@ const joinClass = asyncHandler(async (req, res) => {
   return res.status(200).json(result)
 })
 
+const listStudentClasses = asyncHandler(async (req, res) => {
+  const result = await learningService.listStudentClasses({
+    studentUserId: req.user.id,
+  })
+
+  return res.status(200).json(result)
+})
+
+const listStudentClassLessons = asyncHandler(async (req, res) => {
+  const classId = parsePositiveInt(req.params.classId, 'classId')
+
+  const result = await learningService.listStudentClassLessons({
+    studentUserId: req.user.id,
+    classId,
+  })
+
+  return res.status(200).json(result)
+})
+
 module.exports = {
   getOverview,
   completeLesson,
   joinClass,
+  listStudentClasses,
+  listStudentClassLessons,
 }

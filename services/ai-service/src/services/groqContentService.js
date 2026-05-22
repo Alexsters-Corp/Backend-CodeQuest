@@ -199,8 +199,37 @@ function normalizeQualityScore(value) {
   return numeric > 1 ? Math.min(numeric / 100, 1) : Math.min(Math.max(numeric, 0), 1)
 }
 
+function parseUserProvidedJson(rawValue) {
+  const source = String(rawValue || '').trim()
+  if (!source) {
+    throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+  }
+
+  const normalized = source
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+
+  try {
+    return JSON.parse(normalized)
+  } catch (_error) {
+    const firstBrace = normalized.indexOf('{')
+    const lastBrace = normalized.lastIndexOf('}')
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const candidate = normalized.slice(firstBrace, lastBrace + 1)
+      try {
+        return JSON.parse(candidate)
+      } catch (_innerError) {
+        throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+      }
+    }
+
+    throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
+  }
+}
+
 function normalizeLessonContent(rawContent) {
-  const content = typeof rawContent === 'string' ? parseJsonPayload(rawContent, 'Contenido invalido para publicar.') : rawContent
+  const content = typeof rawContent === 'string' ? parseUserProvidedJson(rawContent) : rawContent
   if (!content || typeof content !== 'object') {
     throw AppError.badRequest('Contenido invalido para publicar.', 'VALIDATION_ERROR')
   }
@@ -828,11 +857,15 @@ class GroqContentService {
     }
   }
 
-  async publishGeneratedLesson({ content, languageId, level, validation, publishedBy, learningPathId = null }) {
+  async publishGeneratedLesson({ content, languageId, level, validation, publishedBy, classId = null, learningPathId = null }) {
     const normalizedContent = normalizeLessonContent(content)
-    const judge0LanguageId = Number(languageId)
+    const judge0LanguageId = resolveJudge0LanguageId({ languageId })
     const pathLevel = DIFFICULTY_TO_PATH_LEVEL[String(level || '').trim().toLowerCase()] || null
     const qualityScore = normalizeQualityScore(validation?.qualityScore)
+
+    if (!Number.isInteger(judge0LanguageId) || judge0LanguageId <= 0) {
+      throw AppError.badRequest('languageId no es válido.', 'VALIDATION_ERROR')
+    }
 
     if (!validation?.approved || qualityScore < 0.8) {
       throw AppError.badRequest('El contenido no cumple el score minimo para publicar.', 'CONTENT_NOT_APPROVED')
@@ -933,15 +966,16 @@ class GroqContentService {
           `UPDATE ai_generated_content
            SET published = 1,
                published_lesson_id = ?,
+               class_id = ?,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
-          [lessonId, normalizedContent.generatedContentId]
+          [lessonId, classId, normalizedContent.generatedContentId]
         )
       } else {
         await connection.query(
           `INSERT INTO ai_generated_content
-            (topic, language, original_content, validated_by, quality_score, difficulty_level, ai_model_used, judge0_validated, published, published_lesson_id, created_by)
-           VALUES (?, ?, ?, 'admin', ?, ?, ?, 1, 1, ?, ?)`,
+            (topic, language, original_content, validated_by, quality_score, difficulty_level, ai_model_used, judge0_validated, published, published_lesson_id, class_id, created_by)
+           VALUES (?, ?, ?, 'admin', ?, ?, ?, 1, 1, ?, ?, ?)`,
           [
             normalizedContent.title,
             String(judge0LanguageId),
@@ -950,6 +984,7 @@ class GroqContentService {
             normalizeExerciseDifficultyForStorage(level || 'beginner'),
             normalizedContent.modelUsed || env.ai.modelContentGeneration,
             lessonId,
+            classId,
             publishedBy || null,
           ]
         )

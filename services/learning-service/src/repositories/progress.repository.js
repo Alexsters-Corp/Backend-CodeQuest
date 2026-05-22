@@ -7,8 +7,8 @@ class ProgressRepository {
     const [rows] = await this.pool.query(
       `SELECT
          COUNT(*) AS total_lessons,
-         COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons,
-         COALESCE(SUM(xp_earned), 0) AS total_xp
+         COALESCE(SUM(CASE WHEN status = 'completed' AND is_class_xp = 0 THEN 1 ELSE 0 END), 0) AS completed_lessons,
+         COALESCE(SUM(CASE WHEN is_class_xp = 0 THEN xp_earned ELSE 0 END), 0) AS total_xp
        FROM user_progress
        WHERE user_id = ?`,
       [userId]
@@ -18,24 +18,25 @@ class ProgressRepository {
   }
 
   // Marca la lección como completada en user_progress (solo estado, sin tocar user_stats)
-  async markLessonCompleted({ userId, lessonId, xpReward }) {
+  async markLessonCompleted({ userId, lessonId, xpReward, isClassXp = false }) {
     const normalizedXp = Number.isFinite(Number(xpReward)) ? Math.max(0, Number(xpReward)) : 0
 
     await this.pool.query(
-      `INSERT INTO user_progress (user_id, lesson_id, status, xp_earned, started_at, completed_at, updated_at)
-       VALUES (?, ?, 'completed', ?, NOW(), NOW(), NOW())
+      `INSERT INTO user_progress (user_id, lesson_id, status, xp_earned, is_class_xp, started_at, completed_at, updated_at)
+       VALUES (?, ?, 'completed', ?, ?, NOW(), NOW(), NOW())
        ON DUPLICATE KEY UPDATE
          status = 'completed',
          xp_earned = GREATEST(xp_earned, VALUES(xp_earned)),
+         is_class_xp = IF(status != 'completed', VALUES(is_class_xp), is_class_xp),
          completed_at = NOW(),
          updated_at = NOW()`,
-      [userId, lessonId, normalizedXp]
+      [userId, lessonId, normalizedXp, isClassXp ? 1 : 0]
     )
   }
 
   async getProgressForLesson({ userId, lessonId }) {
     const [rows] = await this.pool.query(
-      `SELECT status, xp_earned, submission_count
+      `SELECT status, xp_earned, submission_count, is_class_xp
        FROM user_progress
        WHERE user_id = ? AND lesson_id = ?
        LIMIT 1`,
@@ -45,21 +46,22 @@ class ProgressRepository {
     return rows[0] || null
   }
 
-  async upsertProgressIfBetter({ userId, lessonId, newXp, newStatus }) {
+  async upsertProgressIfBetter({ userId, lessonId, newXp, newStatus, isClassXp = false }) {
     const normalizedXp = Number.isFinite(Number(newXp)) ? Math.max(0, Number(newXp)) : 0
 
     await this.pool.query(
       `INSERT INTO user_progress
-         (user_id, lesson_id, status, xp_earned, started_at, completed_at, last_accessed_at, submission_count, updated_at)
-       VALUES (?, ?, ?, ?, NOW(), IF(? = 'completed', NOW(), NULL), NOW(), 1, NOW())
+         (user_id, lesson_id, status, xp_earned, is_class_xp, started_at, completed_at, last_accessed_at, submission_count, updated_at)
+       VALUES (?, ?, ?, ?, ?, NOW(), IF(? = 'completed', NOW(), NULL), NOW(), 1, NOW())
        ON DUPLICATE KEY UPDATE
          status           = IF(status = 'completed', 'completed', VALUES(status)),
          xp_earned        = GREATEST(xp_earned, VALUES(xp_earned)),
+         is_class_xp      = IF(status != 'completed', VALUES(is_class_xp), is_class_xp),
          completed_at     = IF(status != 'completed' AND VALUES(status) = 'completed', NOW(), completed_at),
          last_accessed_at = NOW(),
          submission_count = submission_count + 1,
          updated_at       = NOW()`,
-      [userId, lessonId, newStatus, normalizedXp, newStatus]
+      [userId, lessonId, newStatus, normalizedXp, isClassXp ? 1 : 0, newStatus]
     )
   }
 
@@ -150,8 +152,9 @@ class ProgressRepository {
          COALESCE(SUM(points_earned), 0) AS xp
        FROM user_submissions
        WHERE user_id = ?
-         AND created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
-       GROUP BY DATE(created_at)
+         AND completed_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+         AND is_class_xp = 0
+       GROUP BY DATE(completed_at)
        ORDER BY dia ASC`,
       [userId]
     )
