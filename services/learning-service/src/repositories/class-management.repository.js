@@ -68,6 +68,55 @@ class ClassManagementRepository {
     return rows
   }
 
+  async listClassesByStudent(studentUserId) {
+    const [rows] = await this.pool.query(
+      `SELECT ic.id AS class_id,
+              ic.name AS class_name,
+              COALESCE(ic.description, '') AS class_description,
+              ic.created_at AS class_created_at,
+              cs.joined_at,
+              u.id AS instructor_user_id,
+              COALESCE(u.name, u.email) AS instructor_name,
+              u.email AS instructor_email,
+              clp.learning_path_id,
+              clp.is_required,
+              clp.assigned_at,
+              lp.name AS learning_path_name,
+              lp.difficulty_level,
+              lp.programming_language_id,
+              COUNT(DISTINCT l.id) AS total_lessons,
+              COALESCE(SUM(CASE WHEN up.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed_lessons
+       FROM class_students cs
+       JOIN instructor_classes ic ON ic.id = cs.class_id
+       JOIN users u ON u.id = ic.instructor_user_id
+       LEFT JOIN class_learning_paths clp ON clp.class_id = ic.id
+       LEFT JOIN learning_paths lp ON lp.id = clp.learning_path_id
+       LEFT JOIN lessons l ON l.learning_path_id = clp.learning_path_id AND l.is_published = 1
+       LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = cs.student_user_id
+       WHERE cs.student_user_id = ?
+         AND cs.status = 'active'
+         AND ic.is_active = TRUE
+       GROUP BY ic.id,
+                ic.name,
+                ic.description,
+                ic.created_at,
+                cs.joined_at,
+                u.id,
+                u.name,
+                u.email,
+                clp.learning_path_id,
+                clp.is_required,
+                clp.assigned_at,
+                lp.name,
+                lp.difficulty_level,
+                lp.programming_language_id
+       ORDER BY cs.joined_at DESC, clp.assigned_at DESC, clp.learning_path_id ASC`,
+      [studentUserId]
+    )
+
+    return rows
+  }
+
   async findClassOwnedByInstructor({ classId, instructorUserId }) {
     const [rows] = await this.pool.query(
       `SELECT id, instructor_user_id, name, description, is_active

@@ -1227,6 +1227,71 @@ class LearningService {
     }
   }
 
+  async listStudentClasses({ studentUserId }) {
+    await this.schemaGuardService.assertGroup('rbac_instructor')
+    await this.schemaGuardService.assertGroup('lessons')
+
+    const rows = await this.classManagementRepository.listClassesByStudent(studentUserId)
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { classes: [] }
+    }
+
+    const classesMap = new Map()
+
+    rows.forEach((row) => {
+      const classId = Number(row.class_id)
+      if (!classesMap.has(classId)) {
+        classesMap.set(classId, {
+          id: classId,
+          name: row.class_name,
+          description: row.class_description,
+          created_at: row.class_created_at,
+          joined_at: row.joined_at,
+          instructor: {
+            id: Number(row.instructor_user_id),
+            name: row.instructor_name,
+            email: row.instructor_email,
+          },
+          assigned_paths_total: 0,
+          assigned_paths: [],
+        })
+      }
+
+      const klass = classesMap.get(classId)
+      const pathId = Number(row.learning_path_id)
+      if (!pathId) {
+        return
+      }
+
+      const totalLessons = Number(row.total_lessons || 0)
+      const completedLessons = Number(row.completed_lessons || 0)
+      const progressPercentage = totalLessons > 0
+        ? toRoundedNumber((completedLessons / totalLessons) * 100, 2)
+        : 0
+
+      klass.assigned_paths.push({
+        id: pathId,
+        name: row.learning_path_name,
+        difficulty_level: row.difficulty_level,
+        programming_language_id: Number(row.programming_language_id || 0),
+        is_required: Boolean(row.is_required),
+        assigned_at: row.assigned_at,
+        progress: {
+          total_lessons: totalLessons,
+          completed_lessons: completedLessons,
+          completion_percentage: progressPercentage,
+        },
+      })
+
+      klass.assigned_paths_total = klass.assigned_paths.length
+    })
+
+    return {
+      classes: Array.from(classesMap.values()),
+    }
+  }
+
   async revokeInviteCode({ actorUserId, actorRole, inviteId }) {
     await this.schemaGuardService.assertGroup('rbac_instructor')
 
