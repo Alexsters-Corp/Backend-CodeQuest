@@ -480,6 +480,21 @@ class ClassManagementRepository {
       learning: learningSummary,
     }
   }
+
+  async isPathAssignedToStudentClasses(studentUserId, learningPathId) {
+    const [rows] = await this.pool.query(
+      `SELECT clp.id
+       FROM class_learning_paths clp
+       JOIN class_students cs ON cs.class_id = clp.class_id
+       WHERE cs.student_user_id = ?
+         AND clp.learning_path_id = ?
+         AND cs.status = 'active'
+       LIMIT 1`,
+      [studentUserId, learningPathId]
+    )
+
+    return rows.length > 0
+  }
 }
 
 module.exports = ClassManagementRepository

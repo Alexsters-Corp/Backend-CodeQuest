@@ -422,20 +422,26 @@ class LearningService {
       throw AppError.notFound('Lección no encontrada.')
     }
 
+    const isClassXp = await this.classManagementRepository.isPathAssignedToStudentClasses(userId, lesson.learning_path_id)
+
     await this.progressRepository.markLessonCompleted({
       userId,
       lessonId,
       xpReward: lesson.xp_reward,
+      isClassXp,
     })
 
-    await this.progressRepository.addXpToStats({
-      userId,
-      xp: lesson.xp_reward,
-    })
+    if (!isClassXp) {
+      await this.progressRepository.addXpToStats({
+        userId,
+        xp: lesson.xp_reward,
+      })
+    }
 
     return {
       lesson_id: lessonId,
       status: 'completed',
+      isClassXp,
     }
   }
 
@@ -1683,8 +1689,12 @@ class LearningService {
       pointsEarned: xpEarned,
     })
 
-    // --- Sumar XP al acumulado del usuario ---
-    await this.progressRepository.addXpToStats({ userId, xp: xpEarned })
+    const isClassXp = await this.classManagementRepository.isPathAssignedToStudentClasses(userId, lesson.learning_path_id)
+
+    // --- Sumar XP al acumulado del usuario solo si NO es de clase ---
+    if (!isClassXp) {
+      await this.progressRepository.addXpToStats({ userId, xp: xpEarned })
+    }
 
     // --- Marcar lección como completada si fue la primera vez con todos correctos ---
     if (!isRetryAttempt && allCorrect) {
@@ -1692,6 +1702,16 @@ class LearningService {
         userId,
         lessonId,
         xpReward,
+        isClassXp,
+      })
+    } else {
+      // Si no es completada (ej: retry o incompleta), igual actualizamos el progreso parcial
+      await this.progressRepository.upsertProgressIfBetter({
+        userId,
+        lessonId,
+        newXp: xpEarned,
+        newStatus: allCorrect ? 'completed' : 'in_progress',
+        isClassXp,
       })
     }
 
