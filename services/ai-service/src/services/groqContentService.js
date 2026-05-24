@@ -1,4 +1,4 @@
-// Content generation, validation, and persistence for the CodeQuest AI service.
+
 const crypto = require('crypto')
 const { AppError } = require('@codequest/shared')
 const { env } = require('../config/env')

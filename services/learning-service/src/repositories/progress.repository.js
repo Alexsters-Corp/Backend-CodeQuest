@@ -152,9 +152,8 @@ class ProgressRepository {
          COALESCE(SUM(points_earned), 0) AS xp
        FROM user_submissions
        WHERE user_id = ?
-         AND completed_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
-         AND is_class_xp = 0
-       GROUP BY DATE(completed_at)
+         AND created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+       GROUP BY DATE(created_at)
        ORDER BY dia ASC`,
       [userId]
     )
@@ -245,16 +244,16 @@ class ProgressRepository {
 
     const currentRank = rankRows[0]?.rank_position ? Number(rankRows[0].rank_position) : null
 
-    const [bestRows] = await this.pool.query(
-      `SELECT best_rank_position
+    const [statsRows] = await this.pool.query(
+      `SELECT rank_position, best_rank_position
        FROM user_stats
        WHERE user_id = ?
        LIMIT 1`,
       [userId]
     )
 
-    const persistedBestRank = bestRows[0]?.best_rank_position
-      ? Number(bestRows[0].best_rank_position)
+    const persistedBestRank = statsRows[0]?.best_rank_position
+      ? Number(statsRows[0].best_rank_position)
       : null
 
     if (currentRank && (!persistedBestRank || currentRank < persistedBestRank)) {
@@ -285,7 +284,7 @@ class ProgressRepository {
 
     return {
       currentRank,
-      bestRank: persistedBestRank,
+      bestRank: persistedBestRank || currentRank,
     }
   }
 
