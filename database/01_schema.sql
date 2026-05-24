@@ -223,6 +223,7 @@ CREATE TABLE `user_progress` (
     `lesson_id` INT UNSIGNED NOT NULL,
     `status` ENUM('not_started', 'in_progress', 'completed') DEFAULT 'not_started',
     `xp_earned` INT UNSIGNED DEFAULT 0,
+    `is_class_xp` BOOLEAN DEFAULT FALSE,
     `started_at` DATETIME NULL,
     `completed_at` DATETIME NULL,
     `last_accessed_at` DATETIME NULL,
