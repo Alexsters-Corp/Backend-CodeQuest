@@ -148,13 +148,16 @@ class ProgressRepository {
     // incluyendo repeticiones y nuevos intentos del usuario.
     const [rows] = await this.pool.query(
       `SELECT
-         DATE_FORMAT(created_at, '%Y-%m-%d') AS dia,
-         COALESCE(SUM(points_earned), 0) AS xp
-       FROM user_submissions
-       WHERE user_id = ?
-         AND completed_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
-         AND is_class_xp = 0
-       GROUP BY DATE(completed_at)
+         DATE_FORMAT(us.created_at, '%Y-%m-%d') AS dia,
+         COALESCE(SUM(us.points_earned), 0) AS xp
+       FROM user_submissions us
+       LEFT JOIN user_progress up
+         ON up.user_id = us.user_id
+        AND up.lesson_id = us.lesson_id
+       WHERE us.user_id = ?
+         AND us.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+         AND COALESCE(up.is_class_xp, 0) = 0
+       GROUP BY DATE(us.created_at)
        ORDER BY dia ASC`,
       [userId]
     )
