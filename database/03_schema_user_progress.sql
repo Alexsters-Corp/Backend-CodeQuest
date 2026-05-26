@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS user_progress (
   lesson_id INT UNSIGNED NOT NULL,
   status ENUM('not_started', 'in_progress', 'completed') DEFAULT 'not_started',
   xp_earned INT UNSIGNED DEFAULT 0,
+  is_class_xp TINYINT(1) NOT NULL DEFAULT 0,
   started_at DATETIME NULL,
   completed_at DATETIME NULL,
   last_accessed_at DATETIME NULL,
@@ -52,5 +53,6 @@ CREATE TABLE IF NOT EXISTS user_progress (
   INDEX idx_user_id (user_id),
   INDEX idx_lesson_id (lesson_id),
   INDEX idx_status (status),
+  INDEX idx_is_class_xp (is_class_xp),
   INDEX idx_completed_at (completed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
