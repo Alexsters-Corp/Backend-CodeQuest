@@ -1,11 +1,15 @@
 const { asyncHandler, parsePositiveInt } = require('@codequest/shared')
 const { learningService } = require('../services/container')
 
+function getRequestLocale(req) {
+  return String(req.headers['accept-language'] || '').toLowerCase().startsWith('en') ? 'en' : 'es'
+}
+
 const listLessonsByPath = asyncHandler(async (req, res) => {
   const pathId = parsePositiveInt(req.params.pathId, 'pathId')
   const userId = req.user?.id
 
-  const lessons = await learningService.listLessons({ pathId, userId })
+  const lessons = await learningService.listLessons({ pathId, userId, locale: getRequestLocale(req) })
   return res.status(200).json(lessons)
 })
 
@@ -13,7 +17,7 @@ const getLessonById = asyncHandler(async (req, res) => {
   const lessonId = parsePositiveInt(req.params.lessonId, 'lessonId')
   const userId = req.user?.id
 
-  const lesson = await learningService.getLessonById({ lessonId, userId })
+  const lesson = await learningService.getLessonById({ lessonId, userId, locale: getRequestLocale(req) })
   return res.status(200).json(lesson)
 })
 
@@ -23,6 +27,7 @@ const getLessonSession = asyncHandler(async (req, res) => {
   const payload = await learningService.getLessonSession({
     lessonId,
     userId: req.user.id,
+    locale: getRequestLocale(req),
   })
 
   return res.status(200).json(payload)
@@ -37,6 +42,7 @@ const submitLessonExercise = asyncHandler(async (req, res) => {
     lessonId,
     exerciseId,
     answer: req.body?.answer,
+    locale: getRequestLocale(req),
   })
 
   return res.status(200).json(result)

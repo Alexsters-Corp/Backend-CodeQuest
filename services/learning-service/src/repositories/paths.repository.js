@@ -43,7 +43,7 @@ class PathsRepository {
     return rows[0] || null
   }
 
-  async listPaths({ languageId, difficulty }) {
+  async listPaths({ languageId, difficulty, locale = 'es' }) {
     const conditions = ['lp.is_active = 1']
     const params = []
 
@@ -59,36 +59,46 @@ class PathsRepository {
 
     const [rows] = await this.pool.query(
       `SELECT lp.id,
-              lp.name,
-              COALESCE(lp.description, '') AS description,
+              COALESCE(lpt.name, lp.name) AS name,
+              COALESCE(lpt.description, lp.description, '') AS description,
               lp.difficulty_level,
+              COALESCE(lp.is_optional, 0) AS is_optional,
+              COALESCE(lp.order_position, 999) AS order_position,
               lp.programming_language_id,
               COALESCE(pl.display_name, pl.name) AS language_name,
               COALESCE(pl.logo_url, 'code') AS language_icon
        FROM learning_paths lp
        JOIN programming_languages pl ON pl.id = lp.programming_language_id
+       LEFT JOIN learning_path_translations lpt
+         ON lpt.learning_path_id = lp.id
+        AND lpt.locale = ?
        WHERE ${conditions.join(' AND ')}
-       ORDER BY lp.programming_language_id, lp.id`,
-      params
+       ORDER BY lp.programming_language_id, COALESCE(lp.order_position, 999), lp.id`,
+      [locale, ...params]
     )
 
     return rows
   }
 
-  async findById(pathId) {
+  async findById(pathId, { locale = 'es' } = {}) {
     const [rows] = await this.pool.query(
       `SELECT lp.id,
-              lp.name,
-              COALESCE(lp.description, '') AS description,
+              COALESCE(lpt.name, lp.name) AS name,
+              COALESCE(lpt.description, lp.description, '') AS description,
               lp.difficulty_level,
+              COALESCE(lp.is_optional, 0) AS is_optional,
+              COALESCE(lp.order_position, 999) AS order_position,
               lp.programming_language_id,
               COALESCE(pl.display_name, pl.name) AS language_name,
               COALESCE(pl.logo_url, 'code') AS language_icon
        FROM learning_paths lp
        JOIN programming_languages pl ON pl.id = lp.programming_language_id
+       LEFT JOIN learning_path_translations lpt
+         ON lpt.learning_path_id = lp.id
+        AND lpt.locale = ?
        WHERE lp.id = ? AND lp.is_active = 1
        LIMIT 1`,
-      [pathId]
+      [locale, pathId]
     )
 
     return rows[0] || null
