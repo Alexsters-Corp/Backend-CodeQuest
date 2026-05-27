@@ -7,13 +7,21 @@ class SolutionsRepository {
    * Devuelve la solución registrada en BD para una lección específica.
    * Retorna null si no existe registro.
    */
-  async findByLesson(lessonId) {
+  async findByLesson(lessonId, { locale = 'es' } = {}) {
     const [rows] = await this.pool.query(
-      `SELECT lesson_id, language_id, solution_code, explanation, prompt, base_code
-       FROM lesson_solutions
-       WHERE lesson_id = ?
+      `SELECT ls.lesson_id,
+              ls.language_id,
+              ls.solution_code,
+              COALESCE(lst.explanation, ls.explanation) AS explanation,
+              COALESCE(lst.prompt, ls.prompt) AS prompt,
+              ls.base_code
+       FROM lesson_solutions ls
+       LEFT JOIN lesson_solution_translations lst
+         ON lst.lesson_solution_id = ls.id
+        AND lst.locale = ?
+       WHERE ls.lesson_id = ?
        LIMIT 1`,
-      [lessonId]
+      [locale, lessonId]
     )
 
     return rows[0] || null
@@ -23,19 +31,25 @@ class SolutionsRepository {
    * Devuelve la solución oficial de una lección para mostrarla al usuario.
    * Incluye el código resuelto (base_code con _____ reemplazado por solution_code).
    */
-  async getSolutionForUser(lessonId) {
+  async getSolutionForUser(lessonId, { locale = 'es' } = {}) {
     const [rows] = await this.pool.query(
       `SELECT ls.lesson_id,
               ls.solution_code,
-              ls.explanation,
+              COALESCE(lst.explanation, ls.explanation) AS explanation,
               ls.base_code,
-              l.title AS lesson_title
+              COALESCE(lt.title, l.title) AS lesson_title
        FROM lesson_solutions ls
        JOIN lessons l ON l.id = ls.lesson_id
+       LEFT JOIN lesson_solution_translations lst
+         ON lst.lesson_solution_id = ls.id
+        AND lst.locale = ?
+       LEFT JOIN lesson_translations lt
+         ON lt.lesson_id = l.id
+        AND lt.locale = ?
        WHERE ls.lesson_id = ?
          AND l.is_published = 1
        LIMIT 1`,
-      [lessonId]
+      [locale, locale, lessonId]
     )
 
     if (!rows[0]) return null

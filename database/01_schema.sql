@@ -85,6 +85,8 @@ CREATE TABLE `learning_paths` (
     `description` TEXT NULL,
     `difficulty_level` ENUM('principiante', 'intermedio', 'avanzado') DEFAULT 'principiante',
     `estimated_hours` INT UNSIGNED DEFAULT 40,
+    `is_optional` BOOLEAN DEFAULT FALSE COMMENT 'Modulo complementario no obligatorio para avanzar',
+    `order_position` INT UNSIGNED DEFAULT 999,
     `is_active` BOOLEAN DEFAULT TRUE,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -92,7 +94,23 @@ CREATE TABLE `learning_paths` (
     FOREIGN KEY (`programming_language_id`) REFERENCES `programming_languages`(`id`) ON DELETE CASCADE,
     INDEX `idx_programming_language_id` (`programming_language_id`),
     INDEX `idx_is_active` (`is_active`),
+    INDEX `idx_is_optional` (`is_optional`),
+    INDEX `idx_order_position` (`order_position`),
     INDEX `idx_difficulty` (`difficulty_level`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `learning_path_translations` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `learning_path_id` INT UNSIGNED NOT NULL,
+    `locale` VARCHAR(10) NOT NULL,
+    `name` VARCHAR(255) NOT NULL,
+    `description` TEXT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (`learning_path_id`) REFERENCES `learning_paths`(`id`) ON DELETE CASCADE,
+    UNIQUE KEY `unique_path_locale` (`learning_path_id`, `locale`),
+    INDEX `idx_locale` (`locale`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -174,6 +192,21 @@ CREATE TABLE `lessons` (
     INDEX `idx_order_position` (`order_position`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `lesson_translations` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `lesson_id` INT UNSIGNED NOT NULL,
+    `locale` VARCHAR(10) NOT NULL,
+    `title` VARCHAR(255) NOT NULL,
+    `description` TEXT NULL,
+    `content` LONGTEXT NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (`lesson_id`) REFERENCES `lessons`(`id`) ON DELETE CASCADE,
+    UNIQUE KEY `unique_lesson_locale` (`lesson_id`, `locale`),
+    INDEX `idx_locale` (`locale`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ============================================================
 -- TABLA: lesson_test_cases
 -- Descripcion: Casos de prueba para validacion (Sprint 3 - HU-014)
@@ -193,6 +226,20 @@ CREATE TABLE `lesson_test_cases` (
     FOREIGN KEY (`lesson_id`) REFERENCES `lessons`(`id`) ON DELETE CASCADE,
     INDEX `idx_lesson_id` (`lesson_id`),
     INDEX `idx_is_hidden` (`is_hidden`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `lesson_solution_translations` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `lesson_solution_id` INT UNSIGNED NOT NULL,
+    `locale` VARCHAR(10) NOT NULL,
+    `explanation` TEXT NULL,
+    `prompt` TEXT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (`lesson_solution_id`) REFERENCES `lesson_solutions`(`id`) ON DELETE CASCADE,
+    UNIQUE KEY `unique_solution_locale` (`lesson_solution_id`, `locale`),
+    INDEX `idx_locale` (`locale`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

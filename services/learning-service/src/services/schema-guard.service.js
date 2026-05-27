@@ -2,7 +2,7 @@ const { AppError } = require('@codequest/shared')
 
 const TABLE_GROUPS = {
   base: ['programming_languages', 'learning_paths', 'users'],
-  lessons: ['lessons', 'user_progress'],
+  lessons: ['lessons', 'user_progress', 'lesson_translations', 'lesson_solution_translations'],
   progress: ['user_progress'],
   favorites: ['user_favorite_paths'],
   diagnostic: ['user_diagnostic_attempts', 'user_learning_paths'],

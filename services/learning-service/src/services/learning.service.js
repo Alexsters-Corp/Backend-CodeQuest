@@ -16,6 +16,12 @@ function normalizeDifficulty(value) {
 
 function sortPathsByDifficulty(paths) {
   return [...paths].sort((a, b) => {
+    const orderA = Number(a.order_position || 999)
+    const orderB = Number(b.order_position || 999)
+    if (orderA !== orderB) {
+      return orderA - orderB
+    }
+
     const rankA = DIFFICULTY_RANK[normalizeDifficulty(a.difficulty_level)]
     const rankB = DIFFICULTY_RANK[normalizeDifficulty(b.difficulty_level)]
 
@@ -25,6 +31,10 @@ function sortPathsByDifficulty(paths) {
 
     return Number(a.id) - Number(b.id)
   })
+}
+
+function normalizeLocale(value) {
+  return String(value || '').toLowerCase().startsWith('en') ? 'en' : 'es'
 }
 
 function resolveAssignedLevel(scorePercentage) {
@@ -363,15 +373,15 @@ class LearningService {
     this.diagnosticQuestionBank = diagnosticQuestionBank
   }
 
-  async listPaths({ languageId, difficulty }) {
+  async listPaths({ languageId, difficulty, locale }) {
     await this.schemaGuardService.assertGroup('base')
-    return this.pathsRepository.listPaths({ languageId, difficulty })
+    return this.pathsRepository.listPaths({ languageId, difficulty, locale: normalizeLocale(locale) })
   }
 
-  async getPathById(pathId) {
+  async getPathById(pathId, { locale } = {}) {
     await this.schemaGuardService.assertGroup('base')
 
-    const path = await this.pathsRepository.findById(pathId)
+    const path = await this.pathsRepository.findById(pathId, { locale: normalizeLocale(locale) })
     if (!path) {
       throw AppError.notFound('Learning path no encontrado.')
     }
@@ -379,22 +389,23 @@ class LearningService {
     return path
   }
 
-  async listLessons({ pathId, userId }) {
+  async listLessons({ pathId, userId, locale }) {
     await this.schemaGuardService.assertGroup('base')
     await this.schemaGuardService.assertGroup('lessons')
 
-    const path = await this.pathsRepository.findById(pathId)
+    const normalizedLocale = normalizeLocale(locale)
+    const path = await this.pathsRepository.findById(pathId, { locale: normalizedLocale })
     if (!path) {
       throw AppError.notFound('Learning path no encontrado.')
     }
 
-    return this.lessonsRepository.listByPath({ pathId, userId })
+    return this.lessonsRepository.listByPath({ pathId, userId, locale: normalizedLocale })
   }
 
-  async getLessonById({ lessonId, userId }) {
+  async getLessonById({ lessonId, userId, locale }) {
     await this.schemaGuardService.assertGroup('lessons')
 
-    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId, locale: normalizeLocale(locale) })
     if (!lesson) {
       throw AppError.notFound('Lección no encontrada.')
     }
@@ -581,7 +592,7 @@ class LearningService {
       throw AppError.notFound('Lenguaje no encontrado o no disponible.')
     }
 
-    const paths = await this.pathsRepository.listPaths({ languageId })
+    const paths = await this.pathsRepository.listPaths({ languageId, locale: 'es' })
     if (paths.length === 0) {
       throw AppError.notFound('No existen rutas activas para este lenguaje.')
     }
@@ -866,7 +877,7 @@ class LearningService {
     }
   }
 
-  async listModulesByLanguage({ userId, languageId }) {
+  async listModulesByLanguage({ userId, languageId, locale }) {
     await this.schemaGuardService.assertGroup('base')
     await this.schemaGuardService.assertGroup('lessons')
     await this.schemaGuardService.assertGroup('progress')
@@ -903,7 +914,7 @@ class LearningService {
     }
 
     const [pathsRaw, statsRaw] = await Promise.all([
-      this.pathsRepository.listPaths({ languageId }),
+      this.pathsRepository.listPaths({ languageId, locale: normalizeLocale(locale) }),
       this.progressRepository.getPathLessonStatsByLanguage({ userId, languageId }),
     ])
 
@@ -946,6 +957,7 @@ class LearningService {
         estado,
         porcentaje,
         difficulty: path.difficulty_level,
+        isOptional: Boolean(path.is_optional),
         totalLessons,
         completedLessons,
       })
@@ -954,16 +966,17 @@ class LearningService {
     return modules
   }
 
-  async getLessonSession({ lessonId, userId }) {
+  async getLessonSession({ lessonId, userId, locale }) {
     await this.schemaGuardService.assertGroup('lessons')
     await this.schemaGuardService.assertGroup('progress')
 
-    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    const normalizedLocale = normalizeLocale(locale)
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId, locale: normalizedLocale })
     if (!lesson) {
       throw AppError.notFound('Lección no encontrada.')
     }
 
-    const dbSolution = await this.solutionsRepository.findByLesson(lessonId)
+    const dbSolution = await this.solutionsRepository.findByLesson(lessonId, { locale: normalizedLocale })
     const exerciseBank = buildLessonExerciseBank(lesson, dbSolution)
     const cleanedTheory = stripLeadingHeading(lesson.content || '')
 
@@ -992,16 +1005,17 @@ class LearningService {
     }
   }
 
-  async submitLessonExercise({ userId, lessonId, exerciseId, answer }) {
+  async submitLessonExercise({ userId, lessonId, exerciseId, answer, locale }) {
     await this.schemaGuardService.assertGroup('lessons')
     await this.schemaGuardService.assertGroup('progress')
 
-    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    const normalizedLocale = normalizeLocale(locale)
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId, locale: normalizedLocale })
     if (!lesson) {
       throw AppError.notFound('Lección no encontrada.')
     }
 
-    const dbSolution = await this.solutionsRepository.findByLesson(lessonId)
+    const dbSolution = await this.solutionsRepository.findByLesson(lessonId, { locale: normalizedLocale })
     const exerciseBank = buildLessonExerciseBank(lesson, dbSolution)
     const selectedExercise = exerciseBank.find((exercise) => exercise.id === exerciseId)
 
@@ -1064,11 +1078,12 @@ class LearningService {
     }
   }
 
-  async getLessonSolution({ lessonId, userId }) {
+  async getLessonSolution({ lessonId, userId, locale }) {
     await this.schemaGuardService.assertGroup('lessons')
     await this.schemaGuardService.assertGroup('progress')
 
-    const lesson = await this.lessonsRepository.findById({ lessonId, userId })
+    const normalizedLocale = normalizeLocale(locale)
+    const lesson = await this.lessonsRepository.findById({ lessonId, userId, locale: normalizedLocale })
     if (!lesson) {
       throw AppError.notFound('Lección no encontrada.')
     }
@@ -1082,7 +1097,7 @@ class LearningService {
       )
     }
 
-    const solution = await this.solutionsRepository.getSolutionForUser(lessonId)
+    const solution = await this.solutionsRepository.getSolutionForUser(lessonId, { locale: normalizedLocale })
     if (!solution) {
       throw AppError.notFound('Esta lección no tiene una solución registrada.')
     }
