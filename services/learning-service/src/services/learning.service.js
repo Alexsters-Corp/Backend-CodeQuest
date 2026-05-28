@@ -207,7 +207,86 @@ function inferBaseCodeByLanguage(languageId) {
   return 'resultado = 2 + 2\nprint(_____)'
 }
 
-function buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp }) {
+function getExerciseBankCopy(locale = 'es') {
+  if (locale === 'en') {
+    return {
+      fallbackGoalQuestion: 'Which option best summarizes the main goal of the lesson "{title}"?',
+      fallbackGoalOptions: [
+        '{description}',
+        'Memorize syntax without practicing.',
+        'Avoid reviewing errors to move faster.',
+        'Skip fundamentals and start with advanced topics.',
+      ],
+      fallbackGoalHint: 'Look for the option that describes practical, progressive learning.',
+      fallbackTrueFalseQuestion:
+        'True or false: practicing short examples and validating results improves understanding.',
+      fallbackTrueFalseOptions: ['True', 'False'],
+      fallbackTrueFalseHint: 'Deliberate practice helps solidify knowledge.',
+      fallbackStrategyQuestion: 'To progress in "{title}", which strategy is the most recommended?',
+      fallbackStrategyOptions: [
+        'Practice, review errors, and try again.',
+        'Solve everything without reading theory or hints.',
+        'Copy answers without understanding why.',
+        'Ignore feedback when an answer fails.',
+      ],
+      fallbackStrategyHint: 'Effective learning combines theory, practice, and feedback.',
+      fallbackStrategyExpected: 'Practice, review errors, and try again.',
+      codePromptDefault: 'Complete the missing identifier to finish the "{title}" example.',
+      conceptGoalQuestion: 'Which option best describes the main goal of "{title}"?',
+      conceptGoalOptions: [
+        '{description}',
+        'Memorize syntax without practicing.',
+        'Avoid debugging errors to move faster.',
+        'Ignore the basics and start with advanced topics.',
+      ],
+      conceptGoalHint: 'Think about the main idea explained in the theory.',
+      trueFalseQuestion:
+        'True or false: practicing short examples and validating results helps consolidate what you learned.',
+      trueFalseOptions: ['True', 'False'],
+      trueFalseHint: 'Deliberate practice strengthens understanding.',
+    }
+  }
+
+  return {
+    fallbackGoalQuestion: '¿Que objetivo principal resume mejor la leccion "{title}"?',
+    fallbackGoalOptions: [
+      '{description}',
+      'Memorizar sintaxis sin practicar.',
+      'Evitar revisar errores para avanzar mas rapido.',
+      'Saltar fundamentos y empezar por temas avanzados.',
+    ],
+    fallbackGoalHint: 'Busca la opcion que describe aprendizaje practico y progresivo.',
+    fallbackTrueFalseQuestion:
+      'Verdadero o falso: practicar ejemplos cortos y validar resultados mejora la comprension.',
+    fallbackTrueFalseOptions: ['Verdadero', 'Falso'],
+    fallbackTrueFalseHint: 'La practica deliberada ayuda a consolidar conocimiento.',
+    fallbackStrategyQuestion: 'Para avanzar en "{title}", ¿cual estrategia es la mas recomendable?',
+    fallbackStrategyOptions: [
+      'Practicar, revisar errores y volver a intentar.',
+      'Resolver todo sin leer teoria ni pistas.',
+      'Copiar respuestas sin entender el por que.',
+      'Ignorar retroalimentacion cuando una respuesta falla.',
+    ],
+    fallbackStrategyHint: 'El aprendizaje efectivo combina teoria, practica y retroalimentacion.',
+    fallbackStrategyExpected: 'Practicar, revisar errores y volver a intentar.',
+    codePromptDefault: 'Completa el identificador faltante para finalizar el ejemplo de "{title}".',
+    conceptGoalQuestion: '¿Cuál de estas opciones describe mejor el objetivo principal de "{title}"?',
+    conceptGoalOptions: [
+      '{description}',
+      'Memorizar sintaxis sin practicar.',
+      'Evitar depurar errores para avanzar más rápido.',
+      'Ignorar las bases y comenzar por temas avanzados.',
+    ],
+    conceptGoalHint: 'Piensa en la explicación principal de la teoría.',
+    trueFalseQuestion:
+      'Verdadero o falso: practicar ejemplos cortos y validar resultados ayuda a consolidar lo aprendido.',
+    trueFalseOptions: ['Verdadero', 'Falso'],
+    trueFalseHint: 'La práctica deliberada fortalece la comprensión.',
+  }
+}
+
+function buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp, locale = 'es' }) {
+  const copy = getExerciseBankCopy(locale)
   const baseExerciseXp = Math.floor(totalXp / 3)
   const finalExerciseXp = totalXp - baseExerciseXp * 2
 
@@ -215,14 +294,9 @@ function buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp }) 
     {
       id: 'concept-core',
       tipo: 'opcion_multiple',
-      enunciado: `¿Que objetivo principal resume mejor la leccion "${lessonTitle}"?`,
-      opciones: [
-        lessonDescription,
-        'Memorizar sintaxis sin practicar.',
-        'Evitar revisar errores para avanzar mas rapido.',
-        'Saltar fundamentos y empezar por temas avanzados.',
-      ],
-      pista: 'Busca la opcion que describe aprendizaje practico y progresivo.',
+      enunciado: copy.fallbackGoalQuestion.replace('{title}', lessonTitle),
+      opciones: copy.fallbackGoalOptions.map((option) => option.replace('{description}', lessonDescription)),
+      pista: copy.fallbackGoalHint,
       numero: 1,
       xp_recompensa: baseExerciseXp,
       validator: {
@@ -233,33 +307,27 @@ function buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp }) 
     {
       id: 'practice-habit',
       tipo: 'verdadero_falso',
-      enunciado:
-        'Verdadero o falso: practicar ejemplos cortos y validar resultados mejora la comprension.',
-      opciones: ['Verdadero', 'Falso'],
-      pista: 'La practica deliberada ayuda a consolidar conocimiento.',
+      enunciado: copy.fallbackTrueFalseQuestion,
+      opciones: copy.fallbackTrueFalseOptions,
+      pista: copy.fallbackTrueFalseHint,
       numero: 2,
       xp_recompensa: baseExerciseXp,
       validator: {
         type: 'option_text',
-        expected: 'Verdadero',
+        expected: copy.fallbackTrueFalseOptions[0],
       },
     },
     {
       id: 'study-strategy',
       tipo: 'opcion_multiple',
-      enunciado: `Para avanzar en "${lessonTitle}", ¿cual estrategia es la mas recomendable?`,
-      opciones: [
-        'Practicar, revisar errores y volver a intentar.',
-        'Resolver todo sin leer teoria ni pistas.',
-        'Copiar respuestas sin entender el por que.',
-        'Ignorar retroalimentacion cuando una respuesta falla.',
-      ],
-      pista: 'El aprendizaje efectivo combina teoria, practica y retroalimentacion.',
+      enunciado: copy.fallbackStrategyQuestion.replace('{title}', lessonTitle),
+      opciones: copy.fallbackStrategyOptions,
+      pista: copy.fallbackStrategyHint,
       numero: 3,
       xp_recompensa: finalExerciseXp,
       validator: {
         type: 'option_text',
-        expected: 'Practicar, revisar errores y volver a intentar.',
+        expected: copy.fallbackStrategyExpected,
       },
     },
   ]
@@ -273,7 +341,8 @@ function buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp }) 
  * @param {object} lesson     - fila de la BD con los datos de la lección
  * @param {object} dbSolution - fila de lesson_solutions (opcional)
  */
-function buildLessonExerciseBank(lesson, dbSolution) {
+function buildLessonExerciseBank(lesson, dbSolution, locale = 'es') {
+  const copy = getExerciseBankCopy(locale)
   const lessonTitle = sanitizeDisplayText(lesson.title || 'la leccion') || 'la leccion'
   const rawDescription = sanitizeDisplayText(lesson.description || '')
   const inferredDescription =
@@ -291,11 +360,11 @@ function buildLessonExerciseBank(lesson, dbSolution) {
   const baseCode = String(dbSolution?.base_code || '').trim()
 
   if (!solutionCode || !explanation) {
-    return buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp })
+    return buildFallbackExerciseBank({ lessonTitle, lessonDescription, totalXp, locale })
   }
 
   const safePrompt =
-    prompt || `Completa el identificador faltante para finalizar el ejemplo de "${lessonTitle}".`
+    prompt || copy.codePromptDefault.replace('{title}', lessonTitle)
   const safeBaseCode = baseCode || inferBaseCodeByLanguage(lesson.programming_language_id)
 
   return [
@@ -316,14 +385,9 @@ function buildLessonExerciseBank(lesson, dbSolution) {
     {
       id: 'concept-core',
       tipo: 'opcion_multiple',
-      enunciado: `¿Cuál de estas opciones describe mejor el objetivo principal de "${lessonTitle}"?`,
-      opciones: [
-        lessonDescription,
-        'Memorizar sintaxis sin practicar.',
-        'Evitar depurar errores para avanzar más rápido.',
-        'Ignorar las bases y comenzar por temas avanzados.',
-      ],
-      pista: 'Piensa en la explicación principal de la teoría.',
+      enunciado: copy.conceptGoalQuestion.replace('{title}', lessonTitle),
+      opciones: copy.conceptGoalOptions.map((option) => option.replace('{description}', lessonDescription)),
+      pista: copy.conceptGoalHint,
       numero: 2,
       xp_recompensa: baseExerciseXp,
       validator: {
@@ -334,15 +398,14 @@ function buildLessonExerciseBank(lesson, dbSolution) {
     {
       id: 'practice-habit',
       tipo: 'verdadero_falso',
-      enunciado:
-        'Verdadero o falso: practicar ejemplos cortos y validar resultados ayuda a consolidar lo aprendido.',
-      opciones: ['Verdadero', 'Falso'],
-      pista: 'La práctica deliberada fortalece la comprensión.',
+      enunciado: copy.trueFalseQuestion,
+      opciones: copy.trueFalseOptions,
+      pista: copy.trueFalseHint,
       numero: 3,
       xp_recompensa: finalExerciseXp,
       validator: {
         type: 'option_text',
-        expected: 'Verdadero',
+        expected: copy.trueFalseOptions[0],
       },
     },
   ]
@@ -977,7 +1040,7 @@ class LearningService {
     }
 
     const dbSolution = await this.solutionsRepository.findByLesson(lessonId, { locale: normalizedLocale })
-    const exerciseBank = buildLessonExerciseBank(lesson, dbSolution)
+    const exerciseBank = buildLessonExerciseBank(lesson, dbSolution, normalizedLocale)
     const cleanedTheory = stripLeadingHeading(lesson.content || '')
 
     return {
@@ -1016,7 +1079,7 @@ class LearningService {
     }
 
     const dbSolution = await this.solutionsRepository.findByLesson(lessonId, { locale: normalizedLocale })
-    const exerciseBank = buildLessonExerciseBank(lesson, dbSolution)
+    const exerciseBank = buildLessonExerciseBank(lesson, dbSolution, normalizedLocale)
     const selectedExercise = exerciseBank.find((exercise) => exercise.id === exerciseId)
 
     if (!selectedExercise) {
