@@ -94,6 +94,25 @@ describe('LearningService helpers', () => {
     test('returns null for non-array', () => {
       expect(pickBestPathForLevel(null, 'principiante')).toBeNull()
     })
+
+    test('prefers non-optional path over optional primer for same level', () => {
+      const optionalAndRequired = [
+        { id: 10, difficulty_level: 'principiante', is_optional: 1, order_position: 1 },
+        { id: 11, difficulty_level: 'principiante', is_optional: 0, order_position: 2 },
+      ]
+
+      const result = pickBestPathForLevel(optionalAndRequired, 'principiante')
+      expect(result.id).toBe(11)
+    })
+
+    test('falls back to optional when there are no required paths', () => {
+      const optionalOnly = [
+        { id: 20, difficulty_level: 'principiante', is_optional: 1, order_position: 1 },
+      ]
+
+      const result = pickBestPathForLevel(optionalOnly, 'principiante')
+      expect(result.id).toBe(20)
+    })
   })
 
   describe('toRoundedNumber', () => {

@@ -55,14 +55,16 @@ function pickBestPathForLevel(paths, level) {
   }
 
   const sorted = sortPathsByDifficulty(paths)
+  const nonOptionalPaths = sorted.filter((path) => !Boolean(path.is_optional))
+  const candidatePaths = nonOptionalPaths.length > 0 ? nonOptionalPaths : sorted
   const targetRank = DIFFICULTY_RANK[normalizeDifficulty(level)]
 
-  const exact = sorted.find((path) => normalizeDifficulty(path.difficulty_level) === level)
+  const exact = candidatePaths.find((path) => normalizeDifficulty(path.difficulty_level) === level)
   if (exact) {
     return exact
   }
 
-  return sorted
+  return candidatePaths
     .map((path) => ({
       path,
       distance: Math.abs(DIFFICULTY_RANK[normalizeDifficulty(path.difficulty_level)] - targetRank),
@@ -989,6 +991,20 @@ class LearningService {
       }])
     )
 
+    const selectedPath = paths.find((path) => Number(path.id) === Number(selectedPathId)) || null
+    const firstRequiredPath = paths.find((path) => !Boolean(path.is_optional)) || null
+
+    // Optional modules are support-only. If selected path is optional, pivot progression to first required path.
+    if (selectedPath && Boolean(selectedPath.is_optional) && firstRequiredPath) {
+      selectedPathId = Number(firstRequiredPath.id)
+
+      await this.pathsRepository.replaceSelectedPathForUserLanguage({
+        userId,
+        languageId,
+        pathId: selectedPathId,
+      })
+    }
+
     const selectedIndex = paths.findIndex((path) => Number(path.id) === Number(selectedPathId))
     const modules = []
 
@@ -1006,7 +1022,17 @@ class LearningService {
         estado = 'en_progreso'
       } else if (selectedIndex > -1 && index < selectedIndex) {
         estado = 'disponible'
-      } else if (index === 0 || modules[index - 1]?.estado === 'completado') {
+      } else if (Boolean(path.is_optional)) {
+        // Optional modules are support content and must never gate progression.
+        estado = 'disponible'
+      } else {
+        const previousRequiredModule = [...modules].reverse().find((module) => !module.isOptional)
+        if (!previousRequiredModule || previousRequiredModule.estado === 'completado') {
+          estado = 'disponible'
+        }
+      }
+
+      if (index === 0 && estado === 'bloqueado') {
         estado = 'disponible'
       }
 
