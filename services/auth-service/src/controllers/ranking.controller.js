@@ -5,6 +5,9 @@ const getLeaderboard = asyncHandler(async (req, res) => {
   const scope = req.query.scope === undefined
     ? 'global'
     : parseString(req.query.scope, 'scope', { minLength: 1 })
+  const type = req.query.type === undefined
+    ? 'historical'
+    : parseString(req.query.type, 'type', { minLength: 1 })
   const limit = req.query.limit === undefined
     ? undefined
     : parsePositiveInt(req.query.limit, 'limit')
@@ -12,6 +15,7 @@ const getLeaderboard = asyncHandler(async (req, res) => {
   const data = await authService.getLeaderboard({
     actorUserId: req.user.id,
     scope,
+    type,
     limit,
   })
 

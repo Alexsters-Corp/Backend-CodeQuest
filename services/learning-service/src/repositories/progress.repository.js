@@ -119,13 +119,14 @@ class ProgressRepository {
     if (normalizedXp === 0) return
 
     await this.pool.query(
-      `INSERT INTO user_stats (user_id, total_xp, submissions_total)
-       VALUES (?, ?, 1)
+      `INSERT INTO user_stats (user_id, total_xp, current_level, submissions_total)
+       VALUES (?, ?, FLOOR(? / 500) + 1, 1)
        ON DUPLICATE KEY UPDATE
          total_xp          = total_xp + ?,
+         current_level     = FLOOR((total_xp + ?) / 500) + 1,
          submissions_total = submissions_total + 1,
          updated_at        = NOW()`,
-      [userId, normalizedXp, normalizedXp]
+      [userId, normalizedXp, normalizedXp, normalizedXp, normalizedXp]
     )
   }
 
@@ -236,11 +237,10 @@ class ProgressRepository {
                 ) AS rank_position
          FROM users u
          LEFT JOIN user_stats us ON us.user_id = u.id
-         WHERE u.is_active = 1
-           AND u.role = 'user'
-           AND u.username IS NOT NULL
-           AND u.username <> ''
-       ) AS ranked
+          WHERE u.is_active = 1
+            AND u.username IS NOT NULL
+            AND u.username <> ''
+        ) AS ranked
        WHERE ranked.id = ?
        LIMIT 1`,
       [userId]

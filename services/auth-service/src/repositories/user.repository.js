@@ -467,16 +467,104 @@ class UserRepository {
                            COALESCE(us.current_level, 1) DESC,
                            u.id ASC
                 ) AS rank_position
+          FROM users u
+          LEFT JOIN user_stats us ON us.user_id = u.id
+          WHERE u.is_active = 1
+            AND u.username IS NOT NULL
+            AND u.username <> ''
+        ) AS ranked
+        ORDER BY ranked.rank_position ASC
+        LIMIT ?`,
+      [actorUserId, actorUserId, safeLimit]
+    )
+
+    return rows
+  }
+
+  async getWeeklyLeaderboard({ actorUserId = null, limit = 25 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const [rows] = await this.pool.query(
+      `SELECT ranked.rank_position,
+              ranked.id,
+              ranked.name,
+              ranked.username,
+              ranked.avatar_url,
+              ranked.country_code,
+              ranked.weekly_xp,
+              CASE
+                WHEN ? IS NULL THEN 0
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM user_follows uf
+                  WHERE uf.follower_id = ?
+                    AND uf.following_id = ranked.id
+                ) THEN 1
+                ELSE 0
+              END AS is_following
+       FROM (
+         SELECT u.id,
+                u.name,
+                u.username,
+                u.avatar_url,
+                u.country_code,
+                COALESCE(SUM(us2.points_earned), 0) AS weekly_xp,
+                ROW_NUMBER() OVER (
+                  ORDER BY COALESCE(SUM(us2.points_earned), 0) DESC,
+                           u.id ASC
+                ) AS rank_position
          FROM users u
-         LEFT JOIN user_stats us ON us.user_id = u.id
+         LEFT JOIN user_submissions us2
+           ON us2.user_id = u.id
+          AND us2.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
          WHERE u.is_active = 1
-           AND u.role = 'user'
            AND u.username IS NOT NULL
            AND u.username <> ''
+         GROUP BY u.id, u.name, u.username, u.avatar_url, u.country_code
        ) AS ranked
        ORDER BY ranked.rank_position ASC
        LIMIT ?`,
       [actorUserId, actorUserId, safeLimit]
+    )
+
+    return rows
+  }
+
+  async getWeeklyFollowingLeaderboard({ actorUserId, limit = 25 }) {
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25))
+    const [rows] = await this.pool.query(
+      `SELECT ranked.rank_position,
+              ranked.id,
+              ranked.name,
+              ranked.username,
+              ranked.avatar_url,
+              ranked.country_code,
+              ranked.weekly_xp,
+              1 AS is_following
+       FROM (
+         SELECT u.id,
+                u.name,
+                u.username,
+                u.avatar_url,
+                u.country_code,
+                COALESCE(SUM(us2.points_earned), 0) AS weekly_xp,
+                ROW_NUMBER() OVER (
+                  ORDER BY COALESCE(SUM(us2.points_earned), 0) DESC,
+                           u.id ASC
+                ) AS rank_position
+         FROM user_follows uf
+         JOIN users u ON u.id = uf.following_id
+         LEFT JOIN user_submissions us2
+           ON us2.user_id = u.id
+          AND us2.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+         WHERE uf.follower_id = ?
+           AND u.is_active = 1
+           AND u.username IS NOT NULL
+           AND u.username <> ''
+         GROUP BY u.id, u.name, u.username, u.avatar_url, u.country_code
+       ) AS ranked
+       ORDER BY ranked.rank_position ASC
+       LIMIT ?`,
+      [actorUserId, safeLimit]
     )
 
     return rows
@@ -512,14 +600,13 @@ class UserRepository {
          FROM user_follows uf
          JOIN users u ON u.id = uf.following_id
          LEFT JOIN user_stats us ON us.user_id = u.id
-         WHERE uf.follower_id = ?
-           AND u.is_active = 1
-           AND u.role = 'user'
-           AND u.username IS NOT NULL
-           AND u.username <> ''
-       ) AS ranked
-       ORDER BY ranked.rank_position ASC
-       LIMIT ?`,
+          WHERE uf.follower_id = ?
+            AND u.is_active = 1
+            AND u.username IS NOT NULL
+            AND u.username <> ''
+        ) AS ranked
+        ORDER BY ranked.rank_position ASC
+        LIMIT ?`,
       [actorUserId, safeLimit]
     )
 
@@ -649,13 +736,12 @@ class UserRepository {
                   ) AS rank_position
            FROM users u
            LEFT JOIN user_stats us ON us.user_id = u.id
-           WHERE u.is_active = 1
-             AND u.role = 'user'
-             AND u.username IS NOT NULL
-             AND u.username <> ''
-         ) AS ranked
-         WHERE ranked.id = ?
-         LIMIT 1`,
+            WHERE u.is_active = 1
+              AND u.username IS NOT NULL
+              AND u.username <> ''
+          ) AS ranked
+          WHERE ranked.id = ?
+          LIMIT 1`,
         [userId]
       ),
       this.pool.query(
@@ -745,10 +831,9 @@ class UserRepository {
               END AS is_following_back
        FROM users u
        LEFT JOIN user_stats us ON us.user_id = u.id
-       WHERE LOWER(u.username) = LOWER(?)
-         AND u.is_active = 1
-         AND u.role = 'user'
-       LIMIT 1`,
+        WHERE LOWER(u.username) = LOWER(?)
+          AND u.is_active = 1
+        LIMIT 1`,
       [actorUserId, actorUserId, actorUserId, actorUserId, normalizedUsername]
     )
 

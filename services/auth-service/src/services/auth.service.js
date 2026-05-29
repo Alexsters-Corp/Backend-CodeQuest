@@ -74,6 +74,7 @@ function mapLeaderboardEntry(entry) {
     avatar: entry.avatar_url || null,
     countryCode: entry.country_code || null,
     totalXp: Number(entry.total_xp || 0),
+    weeklyXp: Number(entry.weekly_xp || 0),
     currentLevel: Number(entry.current_level || 1),
     lessonsCompleted: Number(entry.lessons_completed || 0),
     isFollowing: Boolean(entry.is_following),
@@ -589,7 +590,7 @@ class AuthService {
     }
   }
 
-  async getLeaderboard({ actorUserId, scope, limit }) {
+  async getLeaderboard({ actorUserId, scope, type, limit }) {
     await this.schemaGuardService.assertReady()
 
     const actor = await this.userRepository.findById(actorUserId)
@@ -602,10 +603,20 @@ class AuthService {
       throw AppError.badRequest('scope invalido. Usa global o following.', 'VALIDATION_ERROR')
     }
 
+    const normalizedType = String(type || 'historical').trim().toLowerCase()
+    if (!['historical', 'weekly'].includes(normalizedType)) {
+      throw AppError.badRequest('type invalido. Usa historical o weekly.', 'VALIDATION_ERROR')
+    }
+
+    const isWeekly = normalizedType === 'weekly'
     const [entries, counts] = await Promise.all([
-      normalizedScope === 'following'
-        ? this.userRepository.getFollowingLeaderboard({ actorUserId, limit })
-        : this.userRepository.getGlobalLeaderboard({ actorUserId, limit }),
+      isWeekly
+        ? normalizedScope === 'following'
+          ? this.userRepository.getWeeklyFollowingLeaderboard({ actorUserId, limit })
+          : this.userRepository.getWeeklyLeaderboard({ actorUserId, limit })
+        : normalizedScope === 'following'
+          ? this.userRepository.getFollowingLeaderboard({ actorUserId, limit })
+          : this.userRepository.getGlobalLeaderboard({ actorUserId, limit }),
       this.userRepository.getFollowCounts(actorUserId),
     ])
 
@@ -615,6 +626,7 @@ class AuthService {
 
     return {
       scope: normalizedScope,
+      type: normalizedType,
       counts,
       entries: entries.map((entry) => {
         const mappedEntry = mapLeaderboardEntry(entry)
