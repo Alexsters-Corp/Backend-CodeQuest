@@ -401,7 +401,7 @@ router.get(
         })
         .filter(Boolean)
 
-      const payload = await groqEvaluationService.generatePersonalizedFeedback(req.user.id, mistakes)
+      const payload = await groqEvaluationService.recommendLessons(req.user.id, mistakes)
       return res.status(200).json(payload)
     } catch (error) {
       return sendError(res, error)
