@@ -35,6 +35,14 @@ describe('diagnostic-question-bank', () => {
       expect(levels.has('avanzado')).toBe(true)
     })
 
+    test('exam keeps 12 progressive questions split by level', () => {
+      const exam = buildExam('javascript', 42)
+      expect(exam).toHaveLength(EXAM_QUESTIONS_PER_LEVEL * 3)
+      expect(exam.slice(0, 4).every((q) => q.level === 'principiante')).toBe(true)
+      expect(exam.slice(4, 8).every((q) => q.level === 'intermedio')).toBe(true)
+      expect(exam.slice(8, 12).every((q) => q.level === 'avanzado')).toBe(true)
+    })
+
     test('each question has required fields', () => {
       const exam = buildExam('python')
       exam.forEach((q) => {
@@ -86,6 +94,29 @@ describe('diagnostic-question-bank', () => {
       const exam = buildExam('javascript')
       expect(Array.isArray(exam)).toBe(true)
       expect(exam.length).toBeGreaterThan(0)
+    })
+
+    test('includes language-specific anchors for supported languages', () => {
+      const cases = [
+        ['javascript', 'event loop'],
+        ['python', '__name__'],
+        ['java', 'Collections'],
+        ['cpp', 'RAII'],
+        ['csharp', 'LINQ'],
+        ['go', 'Goroutines'],
+        ['ruby', 'Metaprogramacion'],
+      ]
+
+      cases.forEach(([language, marker]) => {
+        const examText = buildExam(language, 7)
+          .map((question) => `${question.prompt} ${question.options.join(' ')}`)
+          .join(' ')
+          .normalize('NFD')
+          .replace(/\p{Diacritic}/gu, '')
+          .toLowerCase()
+
+        expect(examText).toContain(marker.toLowerCase())
+      })
     })
 
     test('works for java', () => {

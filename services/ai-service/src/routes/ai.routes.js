@@ -322,13 +322,20 @@ router.get(
            pl.judge0_language_id,
            lp.id AS path_id,
            lp.name AS path_name,
-           lp.difficulty_level
+           lp.slug AS path_slug,
+           lp.difficulty_level,
+           COALESCE(lp.is_optional, 0) AS path_is_optional,
+           COALESCE(lp.order_position, 999) AS path_order_position
          FROM programming_languages pl
          LEFT JOIN learning_paths lp
            ON lp.programming_language_id = pl.id
           AND lp.is_active = 1
          WHERE pl.is_active = 1
-         ORDER BY pl.name ASC, FIELD(lp.difficulty_level, 'principiante', 'intermedio', 'avanzado'), lp.id ASC`
+         ORDER BY
+           pl.name ASC,
+           COALESCE(lp.order_position, 999) ASC,
+           FIELD(lp.difficulty_level, 'principiante', 'intermedio', 'avanzado') ASC,
+           lp.id ASC`
       )
 
       const languages = new Map()
@@ -348,7 +355,10 @@ router.get(
           languages.get(key).paths.push({
             id: Number(row.path_id),
             name: row.path_name,
+            slug: row.path_slug,
             difficultyLevel: row.difficulty_level,
+            isOptional: Boolean(row.path_is_optional),
+            orderPosition: Number(row.path_order_position || 999),
           })
         }
       })

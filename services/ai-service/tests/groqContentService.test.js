@@ -7,7 +7,12 @@ describe('GroqContentService classifyContent', () => {
     process.env.AI_TIMEOUT_MS = '1000'
   })
 
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
   test('retries Groq and caches response', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     const get = jest.fn().mockResolvedValue(null)
     const set = jest.fn().mockResolvedValue(undefined)
 
@@ -40,6 +45,7 @@ describe('GroqContentService classifyContent', () => {
     expect(result.level).toBe('beginner')
     expect(create).toHaveBeenCalledTimes(2)
     expect(set).toHaveBeenCalledTimes(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[groqContent] model=llama-3.3-70b status=unknown message=boom')
   })
 
   test('returns cached classification without Groq call', async () => {

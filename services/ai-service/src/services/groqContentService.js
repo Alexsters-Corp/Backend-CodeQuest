@@ -424,6 +424,8 @@ async function resolveLearningPathById(connection, { learningPathId, judge0Langu
 
 // FIXED: uses singleton groqClient; added jsonMode for response_format; added error logging
 async function callGroq({ model, messages, temperature = 0.4, maxTokens = 800, timeoutMs = 10000, jsonMode = false }) {
+  let timeoutId
+
   try {
     const requestOptions = {
       messages,
@@ -441,10 +443,13 @@ async function callGroq({ model, messages, temperature = 0.4, maxTokens = 800, t
     const request = groqClient.chat.completions.create(requestOptions)
 
     const timeoutPromise = new Promise((_, reject) => {
-      const timer = setTimeout(() => {
-        clearTimeout(timer)
+      timeoutId = setTimeout(() => {
         reject(new Error('Groq timeout'))
       }, timeoutMs)
+
+      if (typeof timeoutId.unref === 'function') {
+        timeoutId.unref()
+      }
     })
 
     const response = await Promise.race([request, timeoutPromise])
@@ -455,6 +460,10 @@ async function callGroq({ model, messages, temperature = 0.4, maxTokens = 800, t
     const statusCode = error?.status || error?.statusCode || 'unknown'
     console.error(`[groqContent] model=${model} status=${statusCode} message=${error.message}`)
     throw error
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
   }
 }
 
