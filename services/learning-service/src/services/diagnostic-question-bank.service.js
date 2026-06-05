@@ -325,6 +325,170 @@ const QUESTION_TEMPLATES = [
   },
 ]
 
+const LANGUAGE_SPECIFIC_TEMPLATES = {
+  python: [
+    {
+      id: 'b-python-indentation',
+      level: 'principiante',
+      prompt: () => 'En Python, ¿qué elemento define normalmente el bloque de código dentro de un if, for o función?',
+      options: () => ['La indentación consistente', 'Llaves obligatorias como en C', 'Punto y coma al final de cada línea', 'Etiquetas de apertura y cierre'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-python-dunder',
+      level: 'intermedio',
+      prompt: () => '¿Para qué se usa con frecuencia el bloque if __name__ == "__main__" en Python?',
+      options: () => ['Para ejecutar código solo cuando el archivo se corre directamente', 'Para importar paquetes desde internet', 'Para declarar variables globales obligatorias', 'Para convertir listas en diccionarios'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-python-context',
+      level: 'avanzado',
+      prompt: () => '¿Qué patrón de Python ayuda a liberar recursos como archivos o conexiones incluso si ocurre un error?',
+      options: () => ['Usar context managers con with', 'Mantener archivos abiertos globalmente', 'Ignorar excepciones con pass siempre', 'Reiniciar el intérprete manualmente'],
+      correctOption: 0,
+    },
+  ],
+  javascript: [
+    {
+      id: 'b-js-runtime',
+      level: 'principiante',
+      prompt: () => 'En JavaScript moderno, ¿qué entorno permite ejecutar código fuera del navegador dentro de CodeQuest?',
+      options: () => ['Node.js', 'JVM', 'CPython exclusivamente', 'Ruby MRI'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-js-event-loop',
+      level: 'intermedio',
+      prompt: () => '¿Qué concepto explica cómo JavaScript coordina callbacks, promesas y tareas asíncronas sin bloquear el hilo principal?',
+      options: () => ['Event loop', 'Herencia múltiple clásica', 'Compilación Ahead-of-Time obligatoria', 'Garbage collection manual'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-js-modules',
+      level: 'avanzado',
+      prompt: () => '¿Qué práctica favorece mantenibilidad en una base JavaScript moderna con muchos archivos?',
+      options: () => ['Separar módulos ES con imports/exports claros', 'Pegar toda la lógica en un único script global', 'Depender de variables implícitas', 'Modificar prototipos nativos sin control'],
+      correctOption: 0,
+    },
+  ],
+  java: [
+    {
+      id: 'b-java-main',
+      level: 'principiante',
+      prompt: () => 'En Java clásico, ¿qué método suele actuar como punto de entrada de una aplicación de consola?',
+      options: () => ['public static void main(String[] args)', 'def main()', 'func main()', 'console.main()'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-java-collections',
+      level: 'intermedio',
+      prompt: () => '¿Qué API de Java permite trabajar con listas, mapas y conjuntos de manera estándar?',
+      options: () => ['Java Collections Framework', 'DOM API', 'pip collections', 'Bundler'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-java-jvm',
+      level: 'avanzado',
+      prompt: () => '¿Qué herramienta de la JVM es adecuada para medir rendimiento de código Java con rigor?',
+      options: () => ['JMH', 'console.log', 'print manual en cada línea', 'Cambiar nombres de variables'],
+      correctOption: 0,
+    },
+  ],
+  cpp: [
+    {
+      id: 'b-cpp-headers',
+      level: 'principiante',
+      prompt: () => 'En C++, ¿qué directiva permite incluir declaraciones de bibliotecas como iostream o vector?',
+      options: () => ['#include', 'import from', 'using package', 'require'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-cpp-raii',
+      level: 'intermedio',
+      prompt: () => '¿Qué principio de C++ asocia adquisición y liberación de recursos al ciclo de vida de objetos?',
+      options: () => ['RAII', 'Event loop', 'Duck typing', 'Monkey patching'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-cpp-ownership',
+      level: 'avanzado',
+      prompt: () => '¿Qué opción reduce fugas de memoria en C++ moderno frente a new/delete manuales?',
+      options: () => ['Smart pointers como std::unique_ptr', 'Variables globales mutables', 'Desactivar destructores', 'Reservar memoria sin liberarla'],
+      correctOption: 0,
+    },
+  ],
+  csharp: [
+    {
+      id: 'b-csharp-console',
+      level: 'principiante',
+      prompt: () => 'En C#, ¿qué instrucción imprime una línea en consola?',
+      options: () => ['Console.WriteLine(valor);', 'System.out.println(valor);', 'fmt.Println(valor)', 'puts valor'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-csharp-linq',
+      level: 'intermedio',
+      prompt: () => '¿Qué característica de C# permite consultar y transformar colecciones con una sintaxis expresiva?',
+      options: () => ['LINQ', 'Bash pipes obligatorios', 'SQL incrustado sin tipos', 'Macros de preprocesador para listas'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-csharp-async',
+      level: 'avanzado',
+      prompt: () => '¿Qué patrón de C# se usa para operaciones asíncronas sin bloquear el hilo principal?',
+      options: () => ['async/await con Task', 'Thread.Sleep como solución principal', 'Bloqueo activo con while infinito', 'Eliminar excepciones'],
+      correctOption: 0,
+    },
+  ],
+  go: [
+    {
+      id: 'b-go-main',
+      level: 'principiante',
+      prompt: () => 'En Go, ¿qué paquete contiene normalmente el punto de entrada ejecutable?',
+      options: () => ['package main', 'namespace Program', 'public class Main', 'module.exports'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-go-errors',
+      level: 'intermedio',
+      prompt: () => '¿Cuál es el patrón idiomático de Go para manejar errores después de una operación?',
+      options: () => ['if err != nil { return err }', 'catch (Exception e)', 'rescue StandardError', 'ignorar err siempre'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-go-concurrency',
+      level: 'avanzado',
+      prompt: () => '¿Qué combinación es central para concurrencia idiomática en Go?',
+      options: () => ['Goroutines y channels', 'Promesas y DOM', 'Threads sin sincronización', 'Callbacks globales únicamente'],
+      correctOption: 0,
+    },
+  ],
+  ruby: [
+    {
+      id: 'b-ruby-output',
+      level: 'principiante',
+      prompt: () => 'En Ruby, ¿qué método se usa comúnmente para imprimir una línea en consola?',
+      options: () => ['puts valor', 'Console.WriteLine(valor)', 'fmt.Println(valor)', 'System.out.println(valor)'],
+      correctOption: 0,
+    },
+    {
+      id: 'i-ruby-blocks',
+      level: 'intermedio',
+      prompt: () => '¿Qué estructura de Ruby permite pasar comportamiento a métodos como each, map o select?',
+      options: () => ['Bloques', 'Headers', 'Interfaces funcionales obligatorias', 'Directivas include'],
+      correctOption: 0,
+    },
+    {
+      id: 'a-ruby-meta',
+      level: 'avanzado',
+      prompt: () => '¿Qué capacidad avanzada de Ruby permite definir comportamiento dinámico en tiempo de ejecución?',
+      options: () => ['Metaprogramación', 'Compilación manual de bytecode', 'Memoria con punteros crudos', 'Tipado primitivo obligatorio'],
+      correctOption: 0,
+    },
+  ],
+}
+
 function normalizeLanguageName(languageName) {
   if (typeof languageName !== 'string') {
     return ''
@@ -377,7 +541,13 @@ function shuffleWithRng(values, rng) {
 }
 
 function pickQuestions(questions, count, rng) {
-  return shuffleWithRng(questions, rng).slice(0, Math.min(count, questions.length))
+  const required = questions.filter((question) => question.profileSpecific)
+  const optional = questions.filter((question) => !question.profileSpecific)
+  const remainingCount = Math.max(0, count - required.length)
+  return [
+    ...required,
+    ...shuffleWithRng(optional, rng).slice(0, Math.min(remainingCount, optional.length)),
+  ].slice(0, count)
 }
 
 function sanitizeOptions(options, correctOption) {
@@ -429,6 +599,13 @@ function buildExam(languageName, attemptSeed = 0) {
 
   QUESTION_TEMPLATES.forEach((template) => {
     byLevel[template.level].push(buildQuestionFromTemplate(template, profile))
+  })
+
+  ;(LANGUAGE_SPECIFIC_TEMPLATES[profile.key] || []).forEach((template) => {
+    byLevel[template.level].push({
+      ...buildQuestionFromTemplate(template, profile),
+      profileSpecific: true,
+    })
   })
 
   // Keep a progressive path: beginner -> intermediate -> advanced.

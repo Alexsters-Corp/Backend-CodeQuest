@@ -11,6 +11,10 @@ describe('GroqEvaluationService', () => {
     process.env.FEATURE_AI_CONTENT_ENABLED = 'true'
   })
 
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
   test('flags hardcoded output when Judge0 accepted', async () => {
     const pool = { query: jest.fn().mockResolvedValue([[]]) }
 
@@ -54,6 +58,8 @@ describe('GroqEvaluationService', () => {
   })
 
   test('returns 403 for user role on admin AI route', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
     jest.doMock('../src/middleware/require-gateway-user', () => {
       return (req, _res, next) => {
         req.user = { id: 'user-1', role: 'user' }
@@ -85,5 +91,8 @@ describe('GroqEvaluationService', () => {
 
     expect(response.status).toBe(403)
     expect(response.body.code).toBe('INSUFFICIENT_ROLE')
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[RBAC] Acceso denegado: user=user-1 role=user path=POST /api/admin/generate-lesson'
+    )
   })
 })
