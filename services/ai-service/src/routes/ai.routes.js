@@ -270,6 +270,7 @@ router.post(
 
       let effectiveLanguageId = languageId
       let effectiveLearningPathId = learningPathId
+      let effectiveClassId = null
 
       if (req.user.role === 'instructor') {
         const resolved = await assertInstructorPublishAccess({
@@ -280,6 +281,12 @@ router.post(
         })
         effectiveLearningPathId = resolved.learningPathId
         effectiveLanguageId = resolved.languageId
+        effectiveClassId = classId
+      } else if (req.user.role === 'admin' && classId) {
+        throw AppError.badRequest(
+          'classId solo puede usarse para publicaciones de instructor en clases.',
+          'ADMIN_CLASS_PUBLISH_NOT_ALLOWED'
+        )
       }
 
       const payload = await groqContentService.publishGeneratedLesson({
@@ -288,7 +295,7 @@ router.post(
         level,
         validation: req.body.validation,
         publishedBy: req.user.id,
-        classId,
+        classId: effectiveClassId,
         learningPathId: effectiveLearningPathId,
       })
 
