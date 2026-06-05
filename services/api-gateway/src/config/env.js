@@ -23,6 +23,28 @@ function toBoolean(value, fallback) {
   return fallback
 }
 
+function toTrustProxy(value, fallback = false) {
+  if (value === undefined) {
+    return fallback
+  }
+
+  const normalized = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return normalized === '1' ? 1 : true
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false
+  }
+
+  const numericValue = Number(normalized)
+  if (Number.isInteger(numericValue) && numericValue >= 0) {
+    return numericValue
+  }
+
+  return value
+}
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   serviceName: 'api-gateway',
@@ -43,6 +65,7 @@ const env = {
     database: process.env.DB_NAME || 'codequest',
   },
   authValidationFailOpen: toBoolean(process.env.AUTH_VALIDATION_FAIL_OPEN, false),
+  trustProxy: toTrustProxy(process.env.TRUST_PROXY, false),
 }
 
 module.exports = { env }
