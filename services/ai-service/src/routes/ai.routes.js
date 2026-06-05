@@ -358,7 +358,7 @@ router.get(
             slug: row.path_slug,
             difficultyLevel: row.difficulty_level,
             isOptional: Boolean(row.path_is_optional),
-            orderPosition: Number(row.path_order_position || 999),
+            orderPosition: Number(row.path_order_position ?? 999),
           })
         }
       })

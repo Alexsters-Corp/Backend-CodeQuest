@@ -16,8 +16,8 @@ function normalizeDifficulty(value) {
 
 function sortPathsByDifficulty(paths) {
   return [...paths].sort((a, b) => {
-    const orderA = Number(a.order_position || 999)
-    const orderB = Number(b.order_position || 999)
+    const orderA = Number(a.order_position ?? 999)
+    const orderB = Number(b.order_position ?? 999)
     if (orderA !== orderB) {
       return orderA - orderB
     }
