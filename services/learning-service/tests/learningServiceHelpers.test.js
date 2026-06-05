@@ -45,6 +45,17 @@ describe('LearningService helpers', () => {
       expect(sorted[2].id).toBe(3)
     })
 
+    test('respects order_position zero for optional introductory paths', () => {
+      const paths = [
+        { id: 2, difficulty_level: 'principiante', order_position: 1 },
+        { id: 1, difficulty_level: 'principiante', order_position: 0, is_optional: 1 },
+      ]
+
+      const sorted = sortPathsByDifficulty(paths)
+
+      expect(sorted.map((path) => path.id)).toEqual([1, 2])
+    })
+
     test('does not mutate original array', () => {
       const paths = [{ id: 2, difficulty_level: 'avanzado' }, { id: 1, difficulty_level: 'principiante' }]
       const original = [...paths]
