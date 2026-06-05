@@ -99,6 +99,7 @@ async function isTokenRevoked(token, decoded) {
 }
 
 const app = express()
+app.set('trust proxy', env.trustProxy)
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

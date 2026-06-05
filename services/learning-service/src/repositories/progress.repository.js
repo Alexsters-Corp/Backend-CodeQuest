@@ -158,7 +158,7 @@ class ProgressRepository {
        WHERE us.user_id = ?
          AND us.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
          AND COALESCE(up.is_class_xp, 0) = 0
-       GROUP BY DATE(us.created_at)
+       GROUP BY DATE_FORMAT(us.created_at, '%Y-%m-%d')
        ORDER BY dia ASC`,
       [userId]
     )
